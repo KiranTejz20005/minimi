@@ -16,7 +16,8 @@
     "seed:fixtures": "tsx scripts/seed.ts --fixtures",
     "eval": "tsx scripts/eval.ts",
     "eval:latency": "tsx scripts/latency.ts",
-    "build:web": "tsx scripts/build-web.ts"
+    "build:web": "tsx scripts/build-web.ts",
+    "build:vercel": "tsx scripts/build-vercel.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",

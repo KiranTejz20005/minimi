@@ -7,6 +7,7 @@ import { bodyLimit } from "hono/body-limit";
 import { basicAuth } from "hono/basic-auth";
 import { logger } from "hono/logger";
 import { HTTPException } from "hono/http-exception";
+import { cors } from "hono/cors";
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -59,6 +60,20 @@ app.use(
     referrerPolicy: "no-referrer",
   }),
 );
+// Split deploy: allow the separately hosted frontend (CORS_ORIGIN) to call the API. Registered before auth
+// so browser preflight (OPTIONS) requests are answered rather than rejected with 401.
+const corsOrigins = (cfg.CORS_ORIGIN ?? "").split(",").map((o) => o.trim().replace(/\/+$/, "")).filter(Boolean);
+if (corsOrigins.length) {
+  app.use(
+    "*",
+    cors({
+      origin: (origin) => (corsOrigins.includes(origin) ? origin : null),
+      allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      allowHeaders: ["Content-Type", "Authorization"],
+      maxAge: 600,
+    }),
+  );
+}
 app.use("/api/*", bodyLimit({ maxSize: 2 * 1024 * 1024, onError: (c) => c.json({ error: "Request too large" }, 413) }));
 
 if (cfg.ACCESS_TOKEN?.trim()) {

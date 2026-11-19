@@ -18,6 +18,8 @@
     "scripts/build-web-lib.ts",
     "scripts/build-web.ts",
     "test/**/*.ts",
-    "web/api.ts"
+    "scripts/build-vercel.ts",
+    "web/api.ts",
+    "web/env.d.ts"
   ]
 }

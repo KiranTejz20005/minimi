@@ -16,6 +16,8 @@ const envSchema = z.object({
   /** If set, the whole app (except /health) sits behind HTTP Basic auth with this password. */
   ACCESS_TOKEN: z.string().optional(),
   ACCESS_USER: z.string().default("minimi"),
+  /** Comma-separated browser origins allowed to call the API cross-origin (split deploy, e.g. a Vercel frontend). Empty = same-origin only. */
+  CORS_ORIGIN: z.string().optional(),
   /** Max chat requests per client IP per minute (0 = unlimited). */
   RATE_LIMIT_PER_MIN: z.coerce.number().default(30),
   /** "1" = trust X-Forwarded-For (only behind a reverse proxy you control). */

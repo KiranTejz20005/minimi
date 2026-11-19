@@ -81,8 +81,11 @@ export class ApiError extends Error {
   }
 }
 
+/** Backend origin, baked in at build time. Empty = same origin (the server serves this UI). */
+const API_BASE = __API_URL__;
+
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetch(API_BASE + url, {
     method,
     headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -183,7 +186,7 @@ export type StreamHandlers = {
 export async function streamChat(body: ChatRequest, h: StreamHandlers, signal?: AbortSignal): Promise<void> {
   let res: Response;
   try {
-    res = await fetch("/api/chat", {
+    res = await fetch(API_BASE + "/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ...body }),

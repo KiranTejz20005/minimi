@@ -9,3 +9,5 @@ data/
 web/bundle.js
 web/bundle.css
 websearch-agent-pack/
+
+dist-web/

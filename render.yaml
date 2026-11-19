@@ -1,0 +1,29 @@
+# Render Blueprint for the backend (API). The frontend is deployed separately on Vercel (see DEPLOY.md).
+services:
+  - type: web
+    name: minimi-api
+    runtime: node
+    plan: free # free = data is wiped on every restart/redeploy; see DEPLOY.md for the persistent-disk option
+    buildCommand: npm install
+    startCommand: npm run start:prod
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: TRUST_PROXY # Render sits in front of the app; needed for correct per-IP rate limiting
+        value: "1"
+      - key: CORS_ORIGIN # your Vercel URL, e.g. https://minimi.vercel.app (comma-separate several)
+        sync: false
+      - key: NVIDIA_API_KEY # or use ANTHROPIC_API_KEY instead; at least one LLM key is required
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+    # Persistent storage (paid plans only). Uncomment, set plan to starter, and add DB_PATH=/var/data/agent.db above.
+    # disk:
+    #   name: minimi-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
