@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Sigil — landing page
+   Minimi — landing page
    Fonts: Geist, Geist Mono, Geist Pixel (SIL OFL, see assets/fonts/OFL.txt)
    ========================================================================== */
 
@@ -8,7 +8,7 @@
 @font-face{font-family:"Geist Pixel";src:url("../assets/fonts/GeistPixel-Square.woff2") format("woff2");font-weight:400 700;font-display:swap}
 
 /* ───────────── Tokens ───────────── */
-:root{
+:root, :root[data-theme="light"]{
   --paper:#f4f4f0;
   --ink:#111110;
   --orange:#ff4d00;
@@ -34,6 +34,22 @@
   --pad:30px;
   --section-y:clamp(72px,8.4vw,120px);
 }
+
+:root[data-theme="dark"]{
+  --paper:#0b0b0c;
+  --ink:#f6f6f7;
+  --orange:#ff5722;
+  --tint:#241915;
+
+  --bg:#0b0b0c;
+  --fg:#f6f6f7;
+  --fg-muted:#96969e;
+  --fg-faint:#6e6e78;
+  --rule:#222226;
+  --rule-strong:#323238;
+  --surface:#131315;
+}
+
 .dark{
   --bg:#101010;
   --fg:#fff;
@@ -42,6 +58,26 @@
   --rule:#262624;
   --rule-strong:#3b3b38;
   --surface:#1a1a18;
+}
+
+:root[data-theme="dark"] .dark{
+  --bg:#080809;
+  --fg:#ffffff;
+  --fg-muted:#9e9ea6;
+  --fg-faint:#71717a;
+  --rule:#1c1c20;
+  --rule-strong:#2b2b32;
+  --surface:#111113;
+}
+
+:root[data-theme="dark"] .dark{
+  --bg:#080809;
+  --fg:#ffffff;
+  --fg-muted:#9e9ea6;
+  --fg-faint:#71717a;
+  --rule:#1c1c20;
+  --rule-strong:#2b2b32;
+  --surface:#111113;
 }
 
 /* ───────────── Base ───────────── */
@@ -644,8 +680,8 @@ a:hover .foot-big .arrow-swap,a:hover .l .arrow-swap{color:var(--orange)}
 .foot-brand{display:grid;grid-template-columns:32% 1fr auto;align-items:center;gap:16px;min-height:100px;padding:0 38px 0 30px;border-bottom:1px solid var(--rule)}
 .foot-brand p{font-size:13px;color:var(--fg-muted)}
 .foot-brand .credit{font:500 10.5px/1 var(--font-mono);letter-spacing:.16em;text-transform:uppercase}
-.wordmark{padding:clamp(40px,5vw,72px) 6.4% clamp(48px,6vw,88px);border-bottom:1px solid var(--rule)}
-.wordmark svg{width:100%;height:auto;overflow:visible}
+.wordmark{display:flex;justify-content:center;align-items:center;padding:clamp(32px,3.8vw,56px) 6.4% clamp(36px,4.5vw,68px);border-bottom:1px solid var(--rule)}
+.wordmark svg{width:100%;max-width:min(720px,85vw);max-height:clamp(90px,14vh,130px);height:auto;margin:0 auto;overflow:visible}
 .wordmark rect{fill:var(--base);transition:fill 1.5s ease-out,opacity .5s ease-out;transition-delay:0s,calc(var(--x)*14ms + var(--y)*8ms)}
 .js .wordmark:not(.is-in) rect{opacity:0}
 .wordmark rect.hot{fill:var(--orange);transition-duration:0s,.5s}
@@ -748,3 +784,30 @@ a:hover .foot-big .arrow-swap,a:hover .l .arrow-swap{color:var(--orange)}
   .js [data-reveal],.js [data-split] .w{opacity:1;transform:none;filter:none}
   .ring-run{animation:none}
 }
+
+
+/* ───────────── Theme Toggle ───────────── */
+.theme-toggle{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:40px;height:40px;padding:0;border:1px solid var(--rule-strong);
+  background:transparent;color:var(--fg);cursor:pointer;
+  transition:background-color .2s ease-out,color .2s ease-out,border-color .2s ease-out,transform .15s ease-out;
+}
+.theme-toggle:hover{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.theme-toggle:active{transform:scale(.94)}
+.theme-toggle .px{width:16px;height:16px}
+:root[data-theme="dark"] .theme-toggle .i-moon{display:none}
+:root[data-theme="dark"] .theme-toggle .i-sun{display:inline-block}
+:root[data-theme="light"] .theme-toggle .i-sun{display:none}
+:root[data-theme="light"] .theme-toggle .i-moon{display:inline-block}
+:root:not([data-theme]) .theme-toggle .i-sun{display:none}
+:root:not([data-theme]) .theme-toggle .i-moon{display:inline-block}
+
+:root[data-theme="dark"] .banner{background:var(--surface);color:var(--fg)}
+:root[data-theme="dark"] .term b{color:var(--fg)}
+:root[data-theme="dark"] .site-header{background:color-mix(in srgb,var(--paper) 86%,transparent)}
+:root[data-theme="dark"] .mobile-menu{background:var(--paper)}
+:root[data-theme="dark"] .viz{background:var(--paper)}
+:root[data-theme="dark"] .trace{background:var(--paper)}
+:root[data-theme="dark"] .foot-demo:hover,:root[data-theme="dark"] .foot-link:hover{background:#18181c}
+:root[data-theme="dark"] .wordmark rect{fill:var(--base-dark, var(--base))}

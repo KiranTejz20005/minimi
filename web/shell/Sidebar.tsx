@@ -141,6 +141,7 @@ export function Sidebar(p: SidebarProps) {
       label: "Workspace",
       width: 220,
       items: [
+        { key: "landing", label: "Landing page", icon: <IconMonitor />, onSelect: () => { window.location.href = "/"; } },
         { key: "np", label: "New project", icon: <IconPlus />, onSelect: p.onNewProject },
         { key: "int", label: "Integrations", icon: <IconPlug />, onSelect: p.onOpenIntegrations },
         { key: "sc", label: "Keyboard shortcuts", icon: <IconKeyboard />, onSelect: p.onOpenShortcuts },
@@ -394,7 +395,12 @@ export function Sidebar(p: SidebarProps) {
           </section>
 
           <section aria-label="Chats">
-            <h3 className="sb-title">Chats</h3>
+            <div className="sb-title-row">
+              <h3 className="sb-title">Chats</h3>
+              <button type="button" className="icon-btn sm" onClick={p.onNewChat} aria-label="New chat" title={`New chat (${MOD}⇧O)`}>
+                <IconNewChat size={14} />
+              </button>
+            </div>
             <ul className="rows">
               {loose.map((c) => chatRow(c))}
               {p.loaded && loose.length === 0 && <li className="row-empty">{conversations.length ? "All chats are pinned or in projects" : "Start a chat to see it here"}</li>}

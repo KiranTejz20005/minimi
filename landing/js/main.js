@@ -1,4 +1,4 @@
-/* Sigil — interactions. No dependencies. */
+/* Minimi — interactions. No dependencies. */
 (() => {
   'use strict';
 
@@ -8,7 +8,7 @@
   const FINE = matchMedia('(hover: hover) and (pointer: fine)').matches;
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   /* Each feature is isolated so one failure never blanks the page. */
-  const run = (name, fn) => { try { fn(); } catch (e) { console.error('[sigil:' + name + ']', e); } };
+  const run = (name, fn) => { try { fn(); } catch (e) { console.error('[minimi:' + name + ']', e); } };
 
   /* ───────────── Pixel icons ───────────── */
   const ICONS = {
@@ -26,6 +26,29 @@
     hex: ['..###..', '.#...#.', '#..#..#', '#..#..#', '#..#..#', '.#...#.', '..###..'],
     lines: ['#####..', '.......', '.#####.', '.......', '..#####'],
     parcel: ['#.....#', '##...##', '#######', '#######', '.#####.', '..###..', '...#...'],
+    sun: [
+      '....#....',
+      '.#..#..#.',
+      '..#####..',
+      '..#####..',
+      '####.####',
+      '..#####..',
+      '..#####..',
+      '.#..#..#.',
+      '....#....',
+    ],
+    moon: [
+      '...####..',
+      '..######.',
+      '.#######.',
+      '.###.....',
+      '####.....',
+      '####.....',
+      '.###.....',
+      '.#######.',
+      '..######.',
+      '...####..',
+    ],
   };
   ICONS.left = ICONS.right.map(r => [...r].reverse().join(''));
   const MARK = ['####..##..####', '####..##..####', '##..........##', '##..........##', '......##......', '......##......', '##..######..##', '##..######..##', '......##......', '......##......', '##..........##', '##..........##', '####..##..####', '####..##..####'];
@@ -657,6 +680,34 @@
   });
 
   /* ───────────── Footer wordmark: pixel letters that light under the cursor ───────────── */
+  
+  /* ───────────── Theme toggle ───────────── */
+  run('theme', () => {
+    const root = document.documentElement;
+    const btn = $('.theme-toggle');
+    if (!btn) return;
+
+    const getTheme = () => root.dataset.theme === 'dark' ? 'dark' : 'light';
+    const setTheme = (t) => {
+      root.dataset.theme = t;
+      try { localStorage.setItem('minimi.theme', t); } catch(e) {}
+      window.dispatchEvent(new CustomEvent('minimi-theme-change', { detail: t }));
+    };
+
+    btn.addEventListener('click', () => {
+      const next = getTheme() === 'dark' ? 'light' : 'dark';
+      setTheme(next);
+    });
+
+    try {
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+        if (!localStorage.getItem('minimi.theme')) {
+          setTheme(e.matches ? 'dark' : 'light');
+        }
+      });
+    } catch(e) {}
+  });
+
   run('wordmark', () => {
     const host = $('#wordmark');
     if (!host) return;
@@ -687,7 +738,7 @@
     if (!FINE || RM) return;
     svg.addEventListener('pointermove', e => {
       const r = svg.getBoundingClientRect();
-      const x = (e.clientX - r.left) / r.width * 59, y = (e.clientY - r.top) / r.height * 19;
+      const x = (e.clientX - r.left) / r.width * 70, y = (e.clientY - r.top) / r.height * 19;
       for (const c of cells) {
         const dx = c.x + .5 - x, dy = c.y + .5 - y;
         if (dx * dx + dy * dy > 5.5) continue;
@@ -724,11 +775,24 @@
       enter(e.target);
     }), { rootMargin: '0px 0px 50px 0px', threshold: 0.01 });
     const live = new IntersectionObserver(es => es.forEach(e => e.target.classList.toggle('is-live', e.isIntersecting)), { rootMargin: '8% 0px' });
+    let started = false;
     const start = () => {
-      targets.forEach(t => { const r = t.getBoundingClientRect(); if (r.top < window.innerHeight && r.bottom > 0) enter(t); io.observe(t); });
-      $$('[data-anim]').forEach(t => live.observe(t));
+      targets.forEach(t => {
+        const r = t.getBoundingClientRect();
+        if (r.top < window.innerHeight && r.bottom > 0) {
+          enter(t);
+        }
+        io.observe(t);
+      });
+      $('[data-anim]').forEach(t => live.observe(t));
+      started = true;
     };
     const fonts = document.fonts ? document.fonts.ready : Promise.resolve();
-    Promise.race([fonts, new Promise(r => setTimeout(r, 1200))]).then(() => requestAnimationFrame(start));
+    Promise.race([fonts, new Promise(r => setTimeout(r, 600))]).then(() => {
+      if (!started) start();
+      requestAnimationFrame(() => { if (!started) start(); });
+    });
+    // Fallback: ensure all targets in viewport are shown even if fonts take longer
+    setTimeout(() => { if (!started) start(); }, 300);
   });
 })();

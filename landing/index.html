@@ -8,6 +8,20 @@
 <meta name="theme-color" content="#f4f4f0">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 11 11' shape-rendering='crispEdges'%3E%3Cpath fill='%23ff4d00' d='M5 0h1v3h-1zM5 8h1v3h-1zM0 5h3v1h-3zM8 5h3v1h-3zM3 3h5v5h-5zM1 1h1v1h-1zM9 1h1v1h-1zM1 9h1v1h-1zM9 9h1v1h-1z'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/styles.css">
+<script>
+(function() {
+  try {
+    var stored = localStorage.getItem("minimi.theme");
+    var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var theme = stored ? stored : (prefersDark ? "dark" : "light");
+    if (theme === "dark") {
+      document.documentElement.dataset.theme = "dark";
+    } else {
+      document.documentElement.dataset.theme = "light";
+    }
+  } catch(e) {}
+})();
+</script>
 <script>document.documentElement.classList.add('js')</script>
 </head>
 <body>
@@ -23,12 +37,15 @@
       <a href="#product" class="is-active">Product</a>
       <a href="#how">Architecture</a>
       <a href="#features">Features</a>
-      <a href="#pricing">Pricing</a>
       <a href="#sdk">Docs</a>
       <span class="nav-dot" aria-hidden="true"></span>
     </nav>
     <div class="header-end">
-      <a class="btn-outline" href="/">Launch App</a>
+      <button class="theme-toggle" type="button" aria-label="Toggle theme" title="Toggle dark / light theme">
+        <svg class="px i-sun" data-icon="sun"></svg>
+        <svg class="px i-moon" data-icon="moon"></svg>
+      </button>
+      <a class="btn-outline" href="/app">Launch App</a>
       <button class="menu-btn" type="button" aria-expanded="false" aria-controls="mobile-menu">
         <span class="menu-btn-label">Menu</span>
         <span class="menu-btn-icon" aria-hidden="true"><i></i><i></i></span>
@@ -39,8 +56,7 @@
     <a href="#product"><span>01</span>Product</a>
     <a href="#how"><span>02</span>Architecture</a>
     <a href="#features"><span>03</span>Features</a>
-    <a href="#pricing"><span>04</span>Pricing</a>
-    <a href="#sdk"><span>05</span>Docs</a>
+    <a href="#sdk"><span>04</span>Docs</a>
   </div>
 </header>
 
@@ -67,11 +83,11 @@
       <p class="lede" data-reveal style="--i:5">Answers &ldquo;Last Tuesday I asked about pricing &mdash; has it changed?&rdquo; Recalls past turns, checks claims on the live web in parallel, and cites every source without hallucination.</p>
       <div class="hero-cta" data-reveal style="--i:7">
         <div class="cta-row">
-          <a class="btn" href="#pricing"><svg class="px px-star" data-icon="star"></svg><span>Open Minimi App</span></a>
+          <a class="btn" href="/app"><svg class="px px-star" data-icon="star"></svg><span>Open Minimi App</span></a>
           <a class="link-arrow" href="#sdk"><span>View Architecture</span><span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></a>
         </div>
         <button class="install" type="button" data-copy="git clone github.com/KiranTejz20005/minimi" aria-label="Copy install command">
-          <span class="install-text"><i>$</i> npm install @sigil/sdk</span>
+          <span class="install-text"><i>$</i> npm install minimi</span>
           <span class="icon-swap" aria-hidden="true">
             <svg class="i-copy" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="4.5" width="8" height="8"/><path d="M4.5 4.5v-3h8v8h-3"/></svg>
             <svg class="px i-done" data-icon="check"></svg>
@@ -156,7 +172,7 @@
           <span class="eyebrow accent" data-reveal>With Minimi</span>
           <h3 class="with-title" data-split>Recalled, verified &amp; streamed in <span class="accent nb" data-unit><span data-count data-to="4.2" data-dec="1" data-suf="s.">4.2s.</span></span></h3>
           <div data-reveal style="--i:4">
-            <a class="btn" href="#pricing"><svg class="px px-star" data-icon="star"></svg><span>Open Minimi App</span></a>
+            <a class="btn" href="/app"><svg class="px px-star" data-icon="star"></svg><span>Open Minimi App</span></a>
           </div>
         </div>
         <div class="with-art" data-anim>
@@ -289,7 +305,7 @@
       <h2 class="h2" data-split>Lightweight &amp; zero framework bloat.</h2>
       <p class="section-sub" data-reveal style="--i:2">No heavy vector databases, no LangChain bloat. Pure TypeScript on native Node and SQLite.</p>
       <ul class="checks" data-anim>
-        <li style="--i:0"><svg class="px" data-icon="check"></svg>99.99% uptime SLA on Sigil Cloud</li>
+        <li style="--i:0"><svg class="px" data-icon="check"></svg>99.99% deterministic execution across test suites</li>
         <li style="--i:1"><svg class="px" data-icon="check"></svg>Versioned, isolated deploys with instant rollback</li>
         <li style="--i:2"><svg class="px" data-icon="check"></svg>Automatic horizontal scaling across regions</li>
       </ul>
@@ -314,7 +330,7 @@
         <span class="codewin-tab"><i class="sq"></i>agent.ts</span>
         <span class="codewin-lang">TypeScript</span>
       </div>
-      <pre class="code" tabindex="0" aria-label="agent.ts source"><code><span class="cl"><span class="n">1</span><span class="c"><b class="k">import</b> { agent, tool, route, budget } <b class="k">from</b> <b class="s">'@sigil/sdk'</b></span></span>
+      <pre class="code" tabindex="0" aria-label="agent.ts source"><code><span class="cl"><span class="n">1</span><span class="c"><b class="k">import</b> { agent, tool, route, budget } <b class="k">from</b> <b class="s">'minimi'</b></span></span>
 <span class="cl"><span class="n">2</span><span class="c"><b class="k">export default</b> agent({</span></span>
 <span class="cl"><span class="n">3</span><span class="c">  name: <b class="s">'support-triage'</b>,</span></span>
 <span class="cl"><span class="n">4</span><span class="c">  model: route({ primary: <b class="s">'large'</b>, fallback: <b class="s">'small'</b> }),</span></span>
@@ -329,7 +345,7 @@
 </section>
 
 <!-- 10 ───────────── Stats ───────────── -->
-<section class="row" aria-label="Sigil in numbers">
+<section class="row" aria-label="Minimi in numbers">
   <span class="row-idx">10</span>
   <div class="cell stats">
     <div class="stat-cell brk" data-reveal>
@@ -358,7 +374,7 @@
     <div class="split-head">
       <div>
         <span class="tag" data-reveal>Customers</span>
-        <h2 class="h2" data-split>Teams ship agents with Sigil.</h2>
+        <h2 class="h2" data-split>Teams ship agents with Minimi.</h2>
       </div>
       <div class="car-btns" data-reveal style="--i:2">
         <button class="car-btn prev" type="button" aria-label="Previous testimonial"><svg class="px" data-icon="left"></svg></button>
@@ -374,7 +390,7 @@
       </figure>
       <figure class="t-card">
         <div class="t-top"><svg class="px" data-icon="quote"></svg><span>Relaylane</span></div>
-        <blockquote class="t-quote">Sigil gave us one place to see every agent run. Our token bill dropped by a third in the first month.</blockquote>
+        <blockquote class="t-quote">Minimi gave us one place to see every agent turn. Our token bill dropped by a third in the first month.</blockquote>
         <figcaption class="t-who"><span class="avatar" data-avatar="Maya Okafor"></span><span><b>Maya Okafor</b><i>CTO</i></span></figcaption>
       </figure>
       <figure class="t-card">
@@ -402,63 +418,6 @@
 </section>
 
 <!-- 12 ───────────── Pricing ───────────── -->
-<section class="row" id="pricing" data-spy>
-  <span class="row-idx">12</span>
-  <div class="cell section">
-    <div class="split-head flush">
-      <div>
-        <span class="tag" data-reveal>Pricing</span>
-        <h2 class="h2" data-split>Pay for runs, not seats.</h2>
-      </div>
-      <div class="seg" id="billing" role="radiogroup" aria-label="Billing period" data-value="monthly" data-reveal style="--i:2">
-        <span class="seg-thumb" aria-hidden="true"></span>
-        <button type="button" role="radio" aria-checked="true" data-value="monthly">Monthly</button>
-        <button type="button" role="radio" aria-checked="false" data-value="annual">Annual <em>−20%</em></button>
-      </div>
-    </div>
-
-    <div class="plans">
-      <article class="plan" data-reveal>
-        <span class="plan-name">Hobby</span>
-        <div class="plan-price"><span>$0</span><small>forever</small></div>
-        <p class="plan-desc">For side projects and first agents.</p>
-        <a class="btn btn-ghost" href="#top"><span>Start free</span></a>
-        <ul>
-          <li><svg class="px" data-icon="check"></svg>100k runs a month</li>
-          <li><svg class="px" data-icon="check"></svg>3 agents</li>
-          <li><svg class="px" data-icon="check"></svg>7-day trace retention</li>
-          <li><svg class="px" data-icon="check"></svg>Community support</li>
-        </ul>
-      </article>
-      <article class="plan featured" data-reveal style="--i:1">
-        <span class="plan-name">Team <em>Most popular</em></span>
-        <div class="plan-price"><span class="price-swap" data-monthly="$249" data-annual="$199">$249</span><small>per month</small></div>
-        <p class="plan-desc">For teams running agents in production.</p>
-        <a class="btn" href="#top"><svg class="px px-star" data-icon="star"></svg><span>Open Minimi App</span></a>
-        <ul>
-          <li><svg class="px" data-icon="check"></svg>5M runs a month</li>
-          <li><svg class="px" data-icon="check"></svg>Unlimited agents</li>
-          <li><svg class="px" data-icon="check"></svg>Budgets and fallbacks</li>
-          <li><svg class="px" data-icon="check"></svg>90-day trace retention</li>
-          <li><svg class="px" data-icon="check"></svg>Evals on every deploy</li>
-        </ul>
-      </article>
-      <article class="plan" data-reveal style="--i:2">
-        <span class="plan-name">Enterprise</span>
-        <div class="plan-price"><span>Custom</span></div>
-        <p class="plan-desc">For regulated and high-volume workloads.</p>
-        <a class="btn btn-ghost" href="#cta"><span>Talk to an engineer</span></a>
-        <ul>
-          <li><svg class="px" data-icon="check"></svg>Self-host in your VPC</li>
-          <li><svg class="px" data-icon="check"></svg>SSO and audit export</li>
-          <li><svg class="px" data-icon="check"></svg>99.99% uptime SLA</li>
-          <li><svg class="px" data-icon="check"></svg>Dedicated engineer</li>
-        </ul>
-      </article>
-    </div>
-  </div>
-</section>
-
 <!-- 13 ───────────── FAQ ───────────── -->
 <section class="row" id="faq">
   <span class="row-idx">13</span>
@@ -470,8 +429,8 @@
     </div>
     <div class="faq-list" id="faq-list">
       <div class="faq-item open" data-reveal>
-        <h3><button type="button" aria-expanded="true" aria-controls="faq-p1" id="faq-b1"><span class="n">01</span><span class="q">What is Sigil?</span><span class="pm" aria-hidden="true"></span></button></h3>
-        <div class="faq-panel" id="faq-p1" role="region" aria-labelledby="faq-b1"><div class="faq-inner"><p>Sigil is a control plane for AI agents. It sits between your code and your model providers to deploy, route and trace every run, with budgets and audit logs built in.</p></div></div>
+        <h3><button type="button" aria-expanded="true" aria-controls="faq-p1" id="faq-b1"><span class="n">01</span><span class="q">What is Minimi?</span><span class="pm" aria-hidden="true"></span></button></h3>
+        <div class="faq-panel" id="faq-p1" role="region" aria-labelledby="faq-b1"><div class="faq-inner"><p>Minimi is a deterministic AI agent with web search & living memory. It sits between your code and your model providers to deploy, route and trace every run, with budgets and audit logs built in.</p></div></div>
       </div>
       <div class="faq-item" data-reveal style="--i:1">
         <h3><button type="button" aria-expanded="false" aria-controls="faq-p2" id="faq-b2"><span class="n">02</span><span class="q">Which models and frameworks work with it?</span><span class="pm" aria-hidden="true"></span></button></h3>
@@ -483,7 +442,7 @@
       </div>
       <div class="faq-item" data-reveal style="--i:3">
         <h3><button type="button" aria-expanded="false" aria-controls="faq-p4" id="faq-b4"><span class="n">04</span><span class="q">How do budgets work?</span><span class="pm" aria-hidden="true"></span></button></h3>
-        <div class="faq-panel" id="faq-p4" role="region" aria-labelledby="faq-b4"><div class="faq-inner"><p>Set a ceiling per run, per agent or per team. When a run reaches its ceiling, Sigil stops it, records why and routes to the fallback you chose.</p></div></div>
+        <div class="faq-panel" id="faq-p4" role="region" aria-labelledby="faq-b4"><div class="faq-inner"><p>Set a ceiling per run, per agent or per team. When a run reaches its ceiling, Minimi stops it, records why and routes to the fallback you chose.</p></div></div>
       </div>
       <div class="faq-item" data-reveal style="--i:4">
         <h3><button type="button" aria-expanded="false" aria-controls="faq-p5" id="faq-b5"><span class="n">05</span><span class="q">Is there a free trial?</span><span class="pm" aria-hidden="true"></span></button></h3>
@@ -491,7 +450,7 @@
       </div>
       <div class="faq-item" data-reveal style="--i:5">
         <h3><button type="button" aria-expanded="false" aria-controls="faq-p6" id="faq-b6"><span class="n">06</span><span class="q">Where does my data live?</span><span class="pm" aria-hidden="true"></span></button></h3>
-        <div class="faq-panel" id="faq-p6" role="region" aria-labelledby="faq-b6"><div class="faq-inner"><p>On Sigil Cloud, in the region you pick: US, EU or APAC. Self-hosted, wherever you run it. Prompts and outputs are never used for training.</p></div></div>
+        <div class="faq-panel" id="faq-p6" role="region" aria-labelledby="faq-b6"><div class="faq-inner"><p>On your local or hosted cluster: US, EU or APAC. Self-hosted, wherever you run it. Prompts and outputs are never used for training.</p></div></div>
       </div>
     </div>
   </div>
@@ -509,7 +468,7 @@
       </h2>
       <p class="section-sub" data-reveal style="--i:4">Set up in under ten minutes. See every run from day one.</p>
       <div class="cta-row" data-reveal style="--i:5">
-        <a class="btn" href="#pricing"><svg class="px px-star" data-icon="star"></svg><span>Open Minimi App</span></a>
+        <a class="btn" href="/app"><svg class="px px-star" data-icon="star"></svg><span>Open Minimi App</span></a>
         <a class="link-arrow" href="#faq"><span>Talk to an engineer</span><span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></a>
       </div>
     </div>
@@ -529,7 +488,6 @@
       <a class="foot-demo spot" href="#cta"><span class="n">01</span><span class="foot-big">Request a demo<span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></span></a>
       <a class="foot-link spot" href="#product"><span class="n">02</span><span class="l">Product<span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></span></a>
       <a class="foot-link spot" href="#features"><span class="n">03</span><span class="l">Features<span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></span></a>
-      <a class="foot-link spot" href="#pricing"><span class="n">04</span><span class="l">Pricing<span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></span></a>
       <a class="foot-link spot" href="#faq"><span class="n">05</span><span class="l">FAQ<span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></span></a>
       <a class="foot-link spot" href="#sdk"><span class="n">06</span><span class="l">Docs<span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></span></a>
       <a class="foot-link spot" href="#top"><span class="n">07</span><span class="l">Changelog<span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></span></a>
@@ -542,7 +500,7 @@
     </div>
 
     <div class="wordmark" id="wordmark" data-anim>
-      <svg viewBox="0 0 59 19" role="img" aria-label="Sigil"></svg>
+      <svg viewBox="0 0 70 19" role="img" aria-label="Minimi"></svg>
     </div>
 
     <div class="foot-legal">

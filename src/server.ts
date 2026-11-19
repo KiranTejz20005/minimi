@@ -258,19 +258,66 @@ ${message}` : undefined,
 });
 
 const landingDir = join(root, "landing");
-app.get("/landing", (c) => c.html(readFileSync(join(landingDir, "index.html"), "utf8")));
-app.get("/landing/*", (c) => {
-  const rel = c.req.path.replace(/^\/landing\//, "");
-  const file = join(landingDir, rel);
+const webDir = join(root, "web");
+
+function serveLandingFile(relPath: string) {
+  const file = join(landingDir, relPath);
   if (existsSync(file) && statSync(file).isFile()) {
     const ext = file.split(".").pop()?.toLowerCase();
-    const ct = ext === "css" ? "text/css" : ext === "js" ? "application/javascript" : ext === "woff2" ? "font/woff2" : ext === "svg" ? "image/svg+xml" : "application/octet-stream";
-    return c.body(readFileSync(file), 200, { "Content-Type": ct });
+    const ct =
+      ext === "html" ? "text/html; charset=utf-8" :
+      ext === "css" ? "text/css; charset=utf-8" :
+      ext === "js" ? "application/javascript; charset=utf-8" :
+      ext === "woff2" ? "font/woff2" :
+      ext === "svg" ? "image/svg+xml" :
+      ext === "json" ? "application/json" :
+      ext === "txt" ? "text/plain; charset=utf-8" :
+      "application/octet-stream";
+    return { found: true, body: readFileSync(file), ct };
+  }
+  return { found: false, body: null, ct: null };
+}
+
+// ── 1. Landing page at root "/" and alias "/landing" ──
+app.get("/", (c) => c.html(readFileSync(join(landingDir, "index.html"), "utf8")));
+app.get("/landing", (c) => c.redirect("/"));
+app.get("/landing/", (c) => c.redirect("/"));
+app.get("/landing/*", (c) => {
+  const rel = c.req.path.replace(/^\/landing\//, "");
+  if (!rel || rel === "index.html") {
+    return c.html(readFileSync(join(landingDir, "index.html"), "utf8"));
+  }
+  const res = serveLandingFile(rel);
+  if (res.found && res.body && res.ct) {
+    return c.body(res.body, 200, { "Content-Type": res.ct });
   }
   return c.text("Not found", 404);
 });
-const webDir = join(root, "web");
-app.get("/", (c) => c.html(readFileSync(join(webDir, "index.html"), "utf8")));
+
+// ── 2. Web Application at "/app" (and alias "/chat") ──
+app.get("/app", (c) => c.html(readFileSync(join(webDir, "index.html"), "utf8")));
+app.get("/app/*", (c) => c.html(readFileSync(join(webDir, "index.html"), "utf8")));
+app.get("/chat", (c) => c.redirect("/app"));
+app.get("/chat/*", (c) => c.redirect("/app"));
+
+// ── 3. Assets for landing page (css, js, fonts) ──
+app.get("/css/*", (c) => {
+  const res = serveLandingFile(c.req.path.replace(/^\//, ""));
+  if (res.found && res.body && res.ct) return c.body(res.body, 200, { "Content-Type": res.ct });
+  return c.text("Not found", 404);
+});
+app.get("/js/*", (c) => {
+  const res = serveLandingFile(c.req.path.replace(/^\//, ""));
+  if (res.found && res.body && res.ct) return c.body(res.body, 200, { "Content-Type": res.ct });
+  return c.text("Not found", 404);
+});
+app.get("/assets/*", (c) => {
+  const res = serveLandingFile(c.req.path.replace(/^\//, ""));
+  if (res.found && res.body && res.ct) return c.body(res.body, 200, { "Content-Type": res.ct });
+  return c.text("Not found", 404);
+});
+
+// ── 4. App bundles ──
 app.get("/bundle.js", (c) => {
   const p = join(webDir, "bundle.js");
   if (!existsSync(p)) return c.text("bundle missing — restart server", 503);
@@ -283,6 +330,8 @@ app.get("/bundle.css", (c) => {
   if (!existsSync(p)) return c.text("", 200, { "Content-Type": "text/css" });
   return c.body(readFileSync(p), 200, { "Content-Type": "text/css" });
 });
+app.get("/app/bundle.js", (c) => c.redirect("/bundle.js"));
+app.get("/app/bundle.css", (c) => c.redirect("/bundle.css"));
 
 const server = serve({ fetch: app.fetch, port: cfg.PORT, hostname: cfg.HOST }, (info) => {
   console.log(`Minimi listening on http://${cfg.HOST === "0.0.0.0" ? "localhost" : cfg.HOST}:${info.port} (${cfg.isProduction ? "production" : "development"})`);
