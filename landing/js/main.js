@@ -1,4 +1,4 @@
-﻿/* Sigil — interactions. No dependencies. */
+/* Sigil — interactions. No dependencies. */
 (() => {
   'use strict';
 
@@ -725,13 +725,10 @@
     }), { rootMargin: '0px 0px 50px 0px', threshold: 0.01 });
     const live = new IntersectionObserver(es => es.forEach(e => e.target.classList.toggle('is-live', e.isIntersecting)), { rootMargin: '8% 0px' });
     const start = () => {
-      targets.forEach(t => { if (isVisible(t)) enter(t); io.observe(t); });
+      targets.forEach(t => { const r = t.getBoundingClientRect(); if (r.top < window.innerHeight && r.bottom > 0) enter(t); io.observe(t); });
       $$('[data-anim]').forEach(t => live.observe(t));
     };
     const fonts = document.fonts ? document.fonts.ready : Promise.resolve();
     Promise.race([fonts, new Promise(r => setTimeout(r, 1200))]).then(() => requestAnimationFrame(start));
   });
 })();
-
-
-
