@@ -1,4 +1,4 @@
-import "dotenv/config";
+﻿import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -7,7 +7,7 @@ import { bodyLimit } from "hono/body-limit";
 import { basicAuth } from "hono/basic-auth";
 import { logger } from "hono/logger";
 import { HTTPException } from "hono/http-exception";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getConfig, requireChatKeys } from "./config.js";
@@ -257,6 +257,18 @@ ${message}` : undefined,
   });
 });
 
+const landingDir = join(root, "landing");
+app.get("/landing", (c) => c.html(readFileSync(join(landingDir, "index.html"), "utf8")));
+app.get("/landing/*", (c) => {
+  const rel = c.req.path.replace(/^\/landing\//, "");
+  const file = join(landingDir, rel);
+  if (existsSync(file) && statSync(file).isFile()) {
+    const ext = file.split(".").pop()?.toLowerCase();
+    const ct = ext === "css" ? "text/css" : ext === "js" ? "application/javascript" : ext === "woff2" ? "font/woff2" : ext === "svg" ? "image/svg+xml" : "application/octet-stream";
+    return c.body(readFileSync(file), 200, { "Content-Type": ct });
+  }
+  return c.text("Not found", 404);
+});
 const webDir = join(root, "web");
 app.get("/", (c) => c.html(readFileSync(join(webDir, "index.html"), "utf8")));
 app.get("/bundle.js", (c) => {
@@ -295,3 +307,5 @@ function shutdown(signal: string) {
 }
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
+
+
