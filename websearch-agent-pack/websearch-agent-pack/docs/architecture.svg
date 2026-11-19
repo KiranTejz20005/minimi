@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 810" width="1000" height="810" font-family="Geist, Inter, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title>Architecture</title>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#475569"/></marker>
+    <marker id="ad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7c3aed"/></marker>
+  </defs>
+  <rect width="1000" height="810" fill="#ffffff"/>
+
+  <!-- Browser + HTTP layer -->
+  <rect x="380" y="16" width="240" height="52" rx="10" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5"/>
+  <text x="500" y="38" text-anchor="middle" font-size="15" font-weight="600" fill="#0c4a6e">Browser</text>
+  <text x="500" y="57" text-anchor="middle" font-size="12" fill="#075985">React UI, streaming over SSE</text>
+
+  <rect x="200" y="100" width="600" height="56" rx="10" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+  <text x="500" y="123" text-anchor="middle" font-size="15" font-weight="600" fill="#0f172a">HTTP layer (Hono)</text>
+  <text x="500" y="144" text-anchor="middle" font-size="12" fill="#334155">Basic auth · CSP headers · 2 MB body limit · per-IP rate limit</text>
+
+  <line x1="500" y1="68" x2="500" y2="100" stroke="#475569" stroke-width="1.8" marker-end="url(#a)"/>
+  <text x="512" y="89" font-size="11" fill="#475569">POST /api/chat</text>
+
+  <!-- runTurn container -->
+  <rect x="40" y="190" width="520" height="470" rx="14" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="56" y="210" font-size="12" font-weight="700" fill="#64748b" letter-spacing="1">RUNTURN · ORCHESTRATOR</text>
+
+  <g font-size="12">
+    <rect x="80" y="224" width="460" height="56" rx="9" fill="#dcfce7" stroke="#16a34a" stroke-width="1.4"/>
+    <text x="96" y="246" font-size="14" font-weight="600" fill="#14532d">1  Temporal resolver</text>
+    <text x="96" y="266" fill="#166534">"last Tuesday" becomes a date window in the user's time zone · code, ~1 ms</text>
+
+    <rect x="80" y="294" width="460" height="56" rx="9" fill="#dcfce7" stroke="#16a34a" stroke-width="1.4"/>
+    <text x="96" y="316" font-size="14" font-weight="600" fill="#14532d">2  Memory retriever</text>
+    <text x="96" y="336" fill="#166534">date window first, BM25 second → hit / miss / none · code, ~5 ms</text>
+
+    <rect x="80" y="364" width="460" height="56" rx="9" fill="#dcfce7" stroke="#16a34a" stroke-width="1.4"/>
+    <text x="96" y="386" font-size="14" font-weight="600" fill="#14532d">3  Context builder</text>
+    <text x="96" y="406" fill="#166534">system prompt + today's date + recalled turns + history</text>
+
+    <rect x="80" y="434" width="460" height="56" rx="9" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.6"/>
+    <text x="96" y="456" font-size="14" font-weight="600" fill="#4c1d95">4  Agent loop</text>
+    <text x="96" y="476" fill="#5b21b6">LLM ⇄ web_search, up to MAX_STEPS · forced-search guard for fresh facts</text>
+
+    <rect x="80" y="504" width="460" height="56" rx="9" fill="#dcfce7" stroke="#16a34a" stroke-width="1.4"/>
+    <text x="96" y="526" font-size="14" font-weight="600" fill="#14532d">5  Citation check</text>
+    <text x="96" y="546" fill="#166534">drop any [n] that does not map to a source registered this turn</text>
+
+    <rect x="80" y="574" width="460" height="56" rx="9" fill="#dcfce7" stroke="#16a34a" stroke-width="1.4"/>
+    <text x="96" y="596" font-size="14" font-weight="600" fill="#14532d">6  Persist</text>
+    <text x="96" y="616" fill="#166534">answer, sources and per-stage trace saved to SQLite</text>
+  </g>
+  <g stroke="#475569" stroke-width="1.8" marker-end="url(#a)">
+    <line x1="300" y1="156" x2="300" y2="224"/>
+    <line x1="300" y1="280" x2="300" y2="294"/>
+    <line x1="300" y1="350" x2="300" y2="364"/>
+    <line x1="300" y1="420" x2="300" y2="434"/>
+    <line x1="300" y1="490" x2="300" y2="504"/>
+    <line x1="300" y1="560" x2="300" y2="574"/>
+  </g>
+
+  <!-- SSE back to browser -->
+  <path d="M80 532 H20 V42 H380" fill="none" stroke="#0284c7" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#a)"/>
+  <text transform="translate(14 300) rotate(-90)" text-anchor="middle" font-size="11" fill="#0369a1">SSE: token · status · sources · done</text>
+
+  <!-- LLM -->
+  <rect x="620" y="190" width="340" height="64" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+  <text x="790" y="215" text-anchor="middle" font-size="15" font-weight="600" fill="#78350f">LLM provider</text>
+  <text x="790" y="237" text-anchor="middle" font-size="12" fill="#92400e">NVIDIA NIM or Anthropic · streaming</text>
+  <path d="M540 450 H590 V222 H620" fill="none" stroke="#7c3aed" stroke-width="1.8" marker-start="url(#ad)" marker-end="url(#ad)"/>
+
+  <!-- Search runner -->
+  <rect x="620" y="320" width="340" height="256" rx="14" fill="#fff7ed" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="636" y="340" font-size="12" font-weight="700" fill="#c2410c" letter-spacing="1">SEARCH RUNNER · PARALLEL</text>
+  <rect x="650" y="358" width="280" height="44" rx="8" fill="#ffedd5" stroke="#ea580c" stroke-width="1.3"/>
+  <text x="790" y="385" text-anchor="middle" font-size="13" font-weight="600" fill="#7c2d12">TTL cache (10 min)</text>
+  <rect x="650" y="438" width="280" height="44" rx="8" fill="#ffedd5" stroke="#ea580c" stroke-width="1.3"/>
+  <text x="790" y="465" text-anchor="middle" font-size="13" font-weight="600" fill="#7c2d12">Tavily · per-call timeout, trimmed excerpts</text>
+  <rect x="650" y="518" width="280" height="44" rx="8" fill="#ffedd5" stroke="#ea580c" stroke-width="1.3" stroke-dasharray="4 3"/>
+  <text x="790" y="545" text-anchor="middle" font-size="13" font-weight="600" fill="#7c2d12">Keyless fallback search</text>
+  <line x1="790" y1="402" x2="790" y2="438" stroke="#475569" stroke-width="1.8" marker-end="url(#a)"/>
+  <text x="800" y="424" font-size="11" fill="#475569">on miss</text>
+  <line x1="790" y1="482" x2="790" y2="518" stroke="#7c3aed" stroke-width="1.8" stroke-dasharray="5 3" marker-end="url(#ad)"/>
+  <text x="800" y="504" font-size="11" fill="#6d28d9">on failure</text>
+  <path d="M540 470 H600 V380 H650" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#a)"/>
+  <text x="546" y="465" font-size="11" fill="#475569">search ×N</text>
+
+  <!-- Digest -->
+  <rect x="620" y="606" width="340" height="60" rx="10" fill="#fae8ff" stroke="#a21caf" stroke-width="1.5"/>
+  <text x="790" y="631" text-anchor="middle" font-size="14" font-weight="600" fill="#701a75">Digest queue (background)</text>
+  <text x="790" y="651" text-anchor="middle" font-size="12" fill="#86198f">fast model extracts checkable claims</text>
+  <path d="M540 602 H580 V636 H620" fill="none" stroke="#7c3aed" stroke-width="1.8" stroke-dasharray="5 3" marker-end="url(#ad)"/>
+  <text x="548" y="594" font-size="11" fill="#6d28d9">after reply</text>
+
+  <!-- SQLite -->
+  <rect x="200" y="712" width="760" height="62" rx="12" fill="#e2e8f0" stroke="#475569" stroke-width="1.6"/>
+  <text x="580" y="737" text-anchor="middle" font-size="15" font-weight="600" fill="#0f172a">SQLite (WAL)</text>
+  <text x="580" y="758" text-anchor="middle" font-size="12" fill="#334155">conversations · turns · claims · sources · search_cache · traces</text>
+  <path d="M80 322 H60 V743 H200" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#a)"/>
+  <text transform="translate(75 660) rotate(-90)" text-anchor="middle" font-size="11" fill="#475569">recall (read)</text>
+  <line x1="300" y1="630" x2="300" y2="712" stroke="#475569" stroke-width="1.8" marker-end="url(#a)"/>
+  <text x="310" y="690" font-size="11" fill="#475569">write</text>
+  <line x1="790" y1="666" x2="790" y2="712" stroke="#475569" stroke-width="1.8" marker-end="url(#a)"/>
+  <text x="800" y="694" font-size="11" fill="#475569">claims</text>
+  <path d="M960 380 H982 V743 H960" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#a)"/>
+
+  <!-- Legend -->
+  <g font-size="11" fill="#475569">
+    <rect x="40" y="788" width="12" height="12" rx="3" fill="#dcfce7" stroke="#16a34a"/><text x="58" y="798">code, no model call</text>
+    <rect x="170" y="788" width="12" height="12" rx="3" fill="#ede9fe" stroke="#7c3aed"/><text x="188" y="798">model step</text>
+    <line x1="270" y1="794" x2="300" y2="794" stroke="#7c3aed" stroke-width="1.8" stroke-dasharray="5 3"/><text x="308" y="798">async or fallback path</text>
+  </g>
+</svg>
