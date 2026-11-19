@@ -1,9 +1,9 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Minimi - Fast Web Search Agent with Living Memory</title>
+<title>Minimi — Fast Web Search Agent with Living Memory</title>
 <meta name="description" content="A fast, deterministic AI chat agent with parallel web search and time-indexed temporal memory. Zero hallucinations, verified citations.">
 <meta name="theme-color" content="#f4f4f0">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 11 11' shape-rendering='crispEdges'%3E%3Cpath fill='%23ff4d00' d='M5 0h1v3h-1zM5 8h1v3h-1zM0 5h3v1h-3zM8 5h3v1h-3zM3 3h5v5h-5zM1 1h1v1h-1zM9 1h1v1h-1zM1 9h1v1h-1zM9 9h1v1h-1z'/%3E%3C/svg%3E">
@@ -19,12 +19,12 @@
     <a class="logo" href="#top" aria-label="Minimi home">
       <svg class="px" data-icon="logo"></svg><span>Minimi</span>
     </a>
-    <nav class="nav" aria-label="Parallel Fanout">
+    <nav class="nav" aria-label="Primary">
       <a href="#product" class="is-active">Product</a>
       <a href="#how">Architecture</a>
-      <a href="#features">Pipeline</a>
-      <a href="#pricing">Benchmarks</a>
-      <a href="#sdk">Setup</a>
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#sdk">Docs</a>
       <span class="nav-dot" aria-hidden="true"></span>
     </nav>
     <div class="header-end">
@@ -38,9 +38,9 @@
   <div class="mobile-menu" id="mobile-menu">
     <a href="#product"><span>01</span>Product</a>
     <a href="#how"><span>02</span>Architecture</a>
-    <a href="#features"><span>03</span>Pipeline</a>
-    <a href="#pricing"><span>04</span>Benchmarks</a>
-    <a href="#sdk"><span>05</span>Setup</a>
+    <a href="#features"><span>03</span>Features</a>
+    <a href="#pricing"><span>04</span>Pricing</a>
+    <a href="#sdk"><span>05</span>Docs</a>
   </div>
 </header>
 
@@ -61,17 +61,17 @@
     <span class="corner-flag" aria-hidden="true"></span>
     <h1 class="hero-title" data-split aria-label="Web Search Agent. With Living Memory.">
       <span class="hl" aria-hidden="true"><svg class="px hero-star" data-icon="star"></svg> Web Search Agent.</span>
-      <span class="hl" aria-hidden="true">With <span class="pxf accent" data-unit data-scramble>temporal</span> <span class="nb"><span class="pxf accent" data-unit data-scramble data-scramble-delay="380">memory</span>.</span></span>
+      <span class="hl" aria-hidden="true">One <span class="pxf accent" data-unit data-scramble>temporal</span> <span class="nb"><span class="pxf accent" data-unit data-scramble data-scramble-delay="380">memory</span>.</span></span>
     </h1>
     <div class="hero-foot">
-      <p class="lede" data-reveal style="--i:5">Answers "Last Tuesday I asked about pricing - has it changed?" Recalls past turns, checks claims on the live web in parallel, and cites every source without hallucination.</p>
+      <p class="lede" data-reveal style="--i:5">Answers &ldquo;Last Tuesday I asked about pricing &mdash; has it changed?&rdquo; Recalls past turns, checks claims on the live web in parallel, and cites every source without hallucination.</p>
       <div class="hero-cta" data-reveal style="--i:7">
         <div class="cta-row">
-          <a class="btn" href="/"><svg class="px px-star" data-icon="star"></svg><span>Open Minimi App</span></a>
+          <a class="btn" href="#pricing"><svg class="px px-star" data-icon="star"></svg><span>Open Minimi App</span></a>
           <a class="link-arrow" href="#sdk"><span>View Architecture</span><span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></a>
         </div>
-        <button class="install" type="button" data-copy="git clone https://github.com/KiranTejz20005/minimi.git" aria-label="Copy clone command">
-          <span class="install-text"><i>$</i> git clone github.com/KiranTejz20005/minimi</span>
+        <button class="install" type="button" data-copy="git clone github.com/KiranTejz20005/minimi" aria-label="Copy install command">
+          <span class="install-text"><i>$</i> npm install @sigil/sdk</span>
           <span class="icon-swap" aria-hidden="true">
             <svg class="i-copy" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="4.5" width="8" height="8"/><path d="M4.5 4.5v-3h8v8h-3"/></svg>
             <svg class="px i-done" data-icon="check"></svg>
@@ -131,15 +131,15 @@
   <span class="row-idx">05</span>
   <div class="cell section">
     <span class="tag" data-reveal>The problem</span>
-    <h2 class="h2" data-split>Agents don’t fail loudly.</h2>
+    <h2 class="h2" data-split>Agents forget dates &amp; hallucinate history.</h2>
 
     <div class="bento">
       <div class="stat spot" data-reveal>
-        <div class="num"><span data-count data-to="100" data-suf="%">40+</span></div>
+        <div class="num"><span data-count data-to="40" data-suf="+">40+</span></div>
         <div><h3>Deterministic recall</h3><p>Date arithmetic is code, never LLM guessing.</p></div>
       </div>
       <div class="stat spot" data-reveal style="--i:1">
-        <div class="num"><span data-count data-to="0">5</span></div>
+        <div class="num"><span data-count data-to="5">5</span></div>
         <div><h3>Zero fake memory</h3><p>Explicit miss prevents invented past records.</p></div>
       </div>
       <div class="stat spot" data-reveal style="--i:2">
@@ -147,16 +147,16 @@
         <div><h3>Temporal resolution</h3><p>Timezone-aware date windows in 1 ms.</p></div>
       </div>
       <div class="stat spot" data-reveal style="--i:3">
-        <div class="num accent"><span>100%</span></div>
+        <div class="num accent"><span>0</span></div>
         <div><h3>Strict citations</h3><p>Unverified citations automatically stripped.</p></div>
       </div>
 
       <div class="with">
         <div class="with-copy">
           <span class="eyebrow accent" data-reveal>With Minimi</span>
-          <h3 class="with-title" data-split>Recalled, verified & streamed in <span class="accent nb" data-unit><span data-count data-to="1.3" data-dec="1" data-suf="s.">4.2s.</span></span></h3>
+          <h3 class="with-title" data-split>Recalled, verified &amp; streamed in <span class="accent nb" data-unit><span data-count data-to="4.2" data-dec="1" data-suf="s.">4.2s.</span></span></h3>
           <div data-reveal style="--i:4">
-            <a class="btn" href="/"><svg class="px px-star" data-icon="star"></svg><span>Open Minimi App</span></a>
+            <a class="btn" href="#pricing"><svg class="px px-star" data-icon="star"></svg><span>Open Minimi App</span></a>
           </div>
         </div>
         <div class="with-art" data-anim>
@@ -196,9 +196,9 @@
         <span class="step-bar" aria-hidden="true"><i></i></span>
         <div class="step-top"><span class="step-n">02</span><span>Route</span></div>
         <div class="viz routes" aria-hidden="true">
-          <div class="rt"><span>Primary</span><b>Tavily</b><i>220 ms</i></div>
-          <div class="rt"><span>Cache Layer</span><b>SQLite</b><i>1 ms</i></div>
-          <div class="rt"><span>Search Runner</span><b>$0Keyless</b><i>fallback</i></div>
+          <div class="rt"><span>Primary</span><b>large</b><i>412 ms</i></div>
+          <div class="rt"><span>Fallback</span><b>small</b><i>96 ms</i></div>
+          <div class="rt"><span>Ceiling</span><b>$0.02</b><i>per run</i></div>
         </div>
         <h3>Parallel Live Search</h3>
         <p>Issues independent searches concurrently, trims excerpts, and prevents duplicate API calls.</p>
@@ -207,10 +207,10 @@
         <span class="step-bar" aria-hidden="true"><i></i></span>
         <div class="step-top"><span class="step-n">03</span><span>Observe</span></div>
         <div class="viz chart" aria-hidden="true">
-          <div class="chart-head"><span>First token p50</span><b>1.0s</b></div>
+          <div class="chart-head"><span>Runs / min</span><b>8,612</b></div>
           <div class="bars" data-bars></div>
         </div>
-        <h3>Citations & Claim Digestion</h3>
+        <h3>Citations &amp; Claim Digestion</h3>
         <p>Streams answers with real citations, then asynchronously stores structured claims.</p>
       </li>
     </ol>
@@ -222,13 +222,13 @@
   <span class="row-idx">07</span>
   <div class="cell section">
     <span class="tag" data-reveal>Features</span>
-    <h2 class="h2" data-split>Engineered for honesty, speed & precision.</h2>
+    <h2 class="h2" data-split>Everything between the prompt and production.</h2>
 
     <div class="feat-grid">
       <article class="feat wide" data-reveal>
         <div class="feat-head">
           <svg class="px feat-icon" data-icon="retrieve"></svg>
-          <div><h3>Parallel Execution Trace</h3><p>Each turn streams step timings, search counts, and citation verification over Server-Sent Events.</p></div>
+          <div><h3>Trace every step</h3><p>Each run becomes a timeline of steps, tokens and tool calls. Search it, share it, replay it.</p></div>
         </div>
         <div class="trace" data-anim aria-hidden="true">
           <div class="trace-axis"><span>0s</span><span>2s</span><span>4s</span><span>6s</span><span>8s</span></div>
@@ -243,10 +243,10 @@
       <article class="feat" data-reveal style="--i:1">
         <div class="feat-head">
           <svg class="px feat-icon" data-icon="tool"></svg>
-          <div><h3>One Tool Constraint</h3><p>One model loop with the single tool web_search. Maximum 5 steps prevents runaway query loops.</p></div>
+          <div><h3>Budgets that hold</h3><p>Ceilings per run, per agent and per team. Runs stop at the limit, not after it.</p></div>
         </div>
         <div class="budget" aria-hidden="true">
-          <div class="budget-top"><span><b>$0.014</b> / $0.020</span><span>Max 5 steps</span></div>
+          <div class="budget-top"><span><b>$0.014</b> / $0.020</span><span>Per run</span></div>
           <div class="meter" data-meter="14/20" data-anim></div>
         </div>
       </article>
@@ -254,25 +254,25 @@
       <article class="feat" data-reveal>
         <div class="feat-head">
           <svg class="px feat-icon" data-icon="star"></svg>
-          <div><h3>Three Grounded Verdicts</h3><p>Changed, Unchanged, or Could Not Verify. Unchanged requires affirmative present confirmation.</p></div>
+          <div><h3>Fallbacks in milliseconds</h3><p>When a provider slows down or errors, traffic moves to the next model you chose.</p></div>
         </div>
-        <p class="feat-meta"><span>Hallucination rate</span><b>0.0% on evals</b></p>
+        <p class="feat-meta"><span>P50 failover</span><b>38 ms</b></p>
       </article>
 
       <article class="feat" data-reveal style="--i:1">
         <div class="feat-head">
           <svg class="px feat-icon" data-icon="verify"></svg>
-          <div><h3>Deterministic Test Harness</h3><p>20/20 test cases passing across recall, parallel search, citations, and prompt-injection safety.</p></div>
+          <div><h3>Evals on every deploy</h3><p>Score each change against your own tasks before it reaches users.</p></div>
         </div>
-        <p class="feat-meta"><span>Eval test suite</span><b>20 / 20 pass</b></p>
+        <p class="feat-meta"><span>Last deploy</span><b>48 / 50 pass</b></p>
       </article>
 
       <article class="feat" data-reveal style="--i:2">
         <div class="feat-head">
           <svg class="px feat-icon" data-icon="respond"></svg>
-          <div><h3>Async Claim Extraction</h3><p>Decomposes answers into structured subject/attribute/value rows for future verification.</p></div>
+          <div><h3>A signed audit log</h3><p>Every action is recorded, searchable and exportable to your SIEM.</p></div>
         </div>
-        <p class="feat-meta"><span>Memory engine</span><b>SQLite WAL</b></p>
+        <p class="feat-meta"><span>Retention</span><b>Up to 7 years</b></p>
       </article>
     </div>
   </div>
@@ -286,12 +286,12 @@
       <svg id="iso-stack" viewBox="0 0 520 540" aria-hidden="true"></svg>
     </div>
     <div class="rel-copy brk">
-      <h2 class="h2" data-split>Lightweight & zero framework bloat.</h2>
+      <h2 class="h2" data-split>Lightweight &amp; zero framework bloat.</h2>
       <p class="section-sub" data-reveal style="--i:2">No heavy vector databases, no LangChain bloat. Pure TypeScript on native Node and SQLite.</p>
       <ul class="checks" data-anim>
-        <li style="--i:0"><svg class="px" data-icon="check"></svg>Built-in in-memory BM25 lexical ranking engine</li>
-        <li style="--i:1"><svg class="px" data-icon="check"></svg>Single SQLite database file with WAL journaling</li>
-        <li style="--i:2"><svg class="px" data-icon="check"></svg>Pluggable LLM interfaces: Claude, OpenAI, and NVIDIA NIM</li>
+        <li style="--i:0"><svg class="px" data-icon="check"></svg>99.99% uptime SLA on Sigil Cloud</li>
+        <li style="--i:1"><svg class="px" data-icon="check"></svg>Versioned, isolated deploys with instant rollback</li>
+        <li style="--i:2"><svg class="px" data-icon="check"></svg>Automatic horizontal scaling across regions</li>
       </ul>
     </div>
   </div>
@@ -305,22 +305,22 @@
       <h2 class="h2" data-split>Run locally in 30 seconds.</h2>
       <p class="section-sub" data-reveal style="--i:2">Clone the repo, set keys in .env, run automated tests, and launch the web server.</p>
       <div data-reveal style="--i:3">
-        <a class="link-arrow" href="#sdk"><span>Explore Source Code</span><span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></a>
+        <a class="link-arrow" href="#sdk"><span>Read the SDK docs</span><span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></a>
       </div>
     </div>
 
     <div class="codewin" id="codewin" data-reveal style="--i:1">
       <div class="codewin-top">
-        <span class="codewin-tab"><i class="sq"></i>terminal</span>
-        <span class="codewin-lang">Bash</span>
+        <span class="codewin-tab"><i class="sq"></i>agent.ts</span>
+        <span class="codewin-lang">TypeScript</span>
       </div>
-      <pre class="code" tabindex="0" aria-label="Terminal setup commands"><code><span class="cl"><span class="n">1</span><span class="c"><b class="k">git</b> clone https://github.com/KiranTejz20005/minimi.git</span></span>
-<span class="cl"><span class="n">2</span><span class="c"><b class="k">cd</b> minimi && <b class="k">npm</b> install</span></span>
-<span class="cl"><span class="n">3</span><span class="c"><b class="k">cp</b> .env.example .env</span></span>
-<span class="cl"><span class="n">4</span><span class="c"><b class="k">npm</b> run build:web</span></span>
-<span class="cl"><span class="n">5</span><span class="c"><b class="k">npm</b> test          <i style="color:#888"># 54 unit tests</i></span></span>
-<span class="cl"><span class="n">6</span><span class="c"><b class="k">npm</b> run eval      <i style="color:#888"># 20/20 test cases</i></span></span>
-<span class="cl"><span class="n">7</span><span class="c"><b class="k">npm</b> start         <i style="color:#888"># http://localhost:3000</i></span></span></code></pre>
+      <pre class="code" tabindex="0" aria-label="agent.ts source"><code><span class="cl"><span class="n">1</span><span class="c"><b class="k">import</b> { agent, tool, route, budget } <b class="k">from</b> <b class="s">'@sigil/sdk'</b></span></span>
+<span class="cl"><span class="n">2</span><span class="c"><b class="k">export default</b> agent({</span></span>
+<span class="cl"><span class="n">3</span><span class="c">  name: <b class="s">'support-triage'</b>,</span></span>
+<span class="cl"><span class="n">4</span><span class="c">  model: route({ primary: <b class="s">'large'</b>, fallback: <b class="s">'small'</b> }),</span></span>
+<span class="cl"><span class="n">5</span><span class="c">  tools: [tool.zendesk(), tool.postgres(<b class="s">'tickets'</b>)],</span></span>
+<span class="cl"><span class="n">6</span><span class="c">  budget: budget.perRun({ usd: <b class="k">0.02</b> }),</span></span>
+<span class="cl"><span class="n">7</span><span class="c">})</span></span></code></pre>
       <div class="codewin-foot" id="deploy-status" data-state="done">
         <i class="sq"></i><span class="st">Deployed</span><span class="ver">minimi@1.0.0</span>
       </div>
@@ -329,24 +329,24 @@
 </section>
 
 <!-- 10 ───────────── Stats ───────────── -->
-<section class="row" aria-label="Minimi in numbers">
+<section class="row" aria-label="Sigil in numbers">
   <span class="row-idx">10</span>
   <div class="cell stats">
     <div class="stat-cell brk" data-reveal>
-      <div class="v"><span data-count data-to="20" data-suf="/20">12M+</span></div>
-      <div class="k">Deterministic Eval Suite</div>
+      <div class="v"><span data-count data-to="12" data-suf="M+">12M+</span></div>
+      <div class="k">Agent runs per day</div>
     </div>
     <div class="stat-cell brk" data-reveal style="--i:1">
-      <div class="v"><span data-count data-to="54" data-suf=" tests">99.99%</span></div>
-      <div class="k">Test Suite Passing</div>
+      <div class="v"><span data-count data-to="99.99" data-dec="2" data-suf="%">99.99%</span></div>
+      <div class="k">Uptime</div>
     </div>
     <div class="stat-cell brk" data-reveal style="--i:2">
-      <div class="v"><span data-count data-to="1.0" data-dec="1" data-suf="s">40%</span></div>
-      <div class="k">First Token Latency p50</div>
+      <div class="v"><span data-count data-to="40" data-suf="%">40%</span></div>
+      <div class="k">Lower token spend</div>
     </div>
     <div class="stat-cell brk" data-reveal style="--i:3">
-      <div class="v"><span data-count data-to="0">&lt;10</span></div>
-      <div class="k">Vector DB Dependencies</div>
+      <div class="v"><span data-count data-to="10" data-pre="&lt;">&lt;10</span></div>
+      <div class="k">Minutes to set up</div>
     </div>
   </div>
 </section>
@@ -358,7 +358,7 @@
     <div class="split-head">
       <div>
         <span class="tag" data-reveal>Customers</span>
-        <h2 class="h2" data-split>Key Architecture Highlights.</h2>
+        <h2 class="h2" data-split>Teams ship agents with Sigil.</h2>
       </div>
       <div class="car-btns" data-reveal style="--i:2">
         <button class="car-btn prev" type="button" aria-label="Previous testimonial"><svg class="px" data-icon="left"></svg></button>
@@ -368,24 +368,24 @@
 
     <div class="t-track" id="t-track" tabindex="0" aria-label="Customer testimonials" data-reveal style="--i:3">
       <figure class="t-card is-active">
-        <div class="t-top"><svg class="px" data-icon="quote"></svg><span>Temporal Memory</span></div>
-        <blockquote class="t-quote">Resolves "last Tuesday" into exact timezone ranges and retrieves earlier turns using in-memory BM25 without model hallucinations.</blockquote>
-        <figcaption class="t-who"><span class="avatar" data-avatar="Temporal Resolver"></span><span><b>Lena Hoffmann</b><i>~1 ms execution</i></span></figcaption>
+        <div class="t-top"><svg class="px" data-icon="quote"></svg><span>Parcel/AI</span></div>
+        <blockquote class="t-quote">Self-hosting in our VPC took an afternoon. Security signed off because every action lands in the audit log.</blockquote>
+        <figcaption class="t-who"><span class="avatar" data-avatar="Lena Hoffmann"></span><span><b>Lena Hoffmann</b><i>Platform Lead</i></span></figcaption>
       </figure>
       <figure class="t-card">
-        <div class="t-top"><svg class="px" data-icon="quote"></svg><span>Parallel Search</span></div>
-        <blockquote class="t-quote">Issues independent web searches concurrently, caches responses in SQLite, and falls back to keyless endpoints.</blockquote>
-        <figcaption class="t-who"><span class="avatar" data-avatar="Web Search Runner"></span><span><b>Maya Okafor</b><i>Tavily & Cache</i></span></figcaption>
+        <div class="t-top"><svg class="px" data-icon="quote"></svg><span>Relaylane</span></div>
+        <blockquote class="t-quote">Sigil gave us one place to see every agent run. Our token bill dropped by a third in the first month.</blockquote>
+        <figcaption class="t-who"><span class="avatar" data-avatar="Maya Okafor"></span><span><b>Maya Okafor</b><i>CTO</i></span></figcaption>
       </figure>
       <figure class="t-card">
-        <div class="t-top"><svg class="px" data-icon="quote"></svg><span>Citation Verifier</span></div>
-        <blockquote class="t-quote">Validates every citation [n] in the final output against verified sources from this turn, stripping unmapped claims.</blockquote>
-        <figcaption class="t-who"><span class="avatar" data-avatar="Citation Engine"></span><span><b>Daniel Kim</b><i>Deterministic Pass</i></span></figcaption>
+        <div class="t-top"><svg class="px" data-icon="quote"></svg><span>Loomstack</span></div>
+        <blockquote class="t-quote">We replaced forty cron jobs with one control plane. On-call went from nightly pages to a quiet channel.</blockquote>
+        <figcaption class="t-who"><span class="avatar" data-avatar="Daniel Kim"></span><span><b>Daniel Kim</b><i>Staff Engineer</i></span></figcaption>
       </figure>
       <figure class="t-card">
-        <div class="t-top"><svg class="px" data-icon="quote"></svg><span>Claim Digestion</span></div>
-        <blockquote class="t-quote">Extracts checkable claims (subject, attribute, value, source, volatility) in the background for exact future comparisons.</blockquote>
-        <figcaption class="t-who"><span class="avatar" data-avatar="Digest Worker"></span><span><b>Priya Raman</b><i>Structured Claims</i></span></figcaption>
+        <div class="t-top"><svg class="px" data-icon="quote"></svg><span>Quanta</span></div>
+        <blockquote class="t-quote">Budgets were the unlock. A runaway loop now costs us two cents, not a weekend.</blockquote>
+        <figcaption class="t-who"><span class="avatar" data-avatar="Priya Raman"></span><span><b>Priya Raman</b><i>Head of AI</i></span></figcaption>
       </figure>
       <figure class="t-card">
         <div class="t-top"><svg class="px" data-icon="quote"></svg><span>Hexbyte</span></div>
@@ -408,7 +408,7 @@
     <div class="split-head flush">
       <div>
         <span class="tag" data-reveal>Pricing</span>
-        <h2 class="h2" data-split>Measured Pipeline Performance.</h2>
+        <h2 class="h2" data-split>Pay for runs, not seats.</h2>
       </div>
       <div class="seg" id="billing" role="radiogroup" aria-label="Billing period" data-value="monthly" data-reveal style="--i:2">
         <span class="seg-thumb" aria-hidden="true"></span>
@@ -419,40 +419,40 @@
 
     <div class="plans">
       <article class="plan" data-reveal>
-        <span class="plan-name">Direct / Recall</span>
+        <span class="plan-name">Hobby</span>
         <div class="plan-price"><span>$0</span><small>forever</small></div>
-        <p class="plan-desc">Single round query without search or recall-only turn.</p>
+        <p class="plan-desc">For side projects and first agents.</p>
         <a class="btn btn-ghost" href="#top"><span>Start free</span></a>
         <ul>
-          <li><svg class="px" data-icon="check"></svg>1 Model call</li>
-          <li><svg class="px" data-icon="check"></svg>1.0s First token p50</li>
-          <li><svg class="px" data-icon="check"></svg>0 Web searches</li>
-          <li><svg class="px" data-icon="check"></svg>~5 ms BM25 recall</li>
+          <li><svg class="px" data-icon="check"></svg>100k runs a month</li>
+          <li><svg class="px" data-icon="check"></svg>3 agents</li>
+          <li><svg class="px" data-icon="check"></svg>7-day trace retention</li>
+          <li><svg class="px" data-icon="check"></svg>Community support</li>
         </ul>
       </article>
       <article class="plan featured" data-reveal style="--i:1">
-        <span class="plan-name">Live Web Search <em>Standard</em></span>
+        <span class="plan-name">Team <em>Most popular</em></span>
         <div class="plan-price"><span class="price-swap" data-monthly="$249" data-annual="$199">$249</span><small>per month</small></div>
-        <p class="plan-desc">Live web retrieval with excerpt trimming & citations.</p>
-        <a class="btn" href="#top"><svg class="px px-star" data-icon="star"></svg><span>Start free trial</span></a>
+        <p class="plan-desc">For teams running agents in production.</p>
+        <a class="btn" href="#top"><svg class="px px-star" data-icon="star"></svg><span>Open Minimi App</span></a>
         <ul>
-          <li><svg class="px" data-icon="check"></svg>2 Model calls</li>
-          <li><svg class="px" data-icon="check"></svg>1.3s First token p50</li>
-          <li><svg class="px" data-icon="check"></svg>1 Web search round</li>
-          <li><svg class="px" data-icon="check"></svg>Parallel query execution</li>
-          <li><svg class="px" data-icon="check"></svg>Verified citations</li>
+          <li><svg class="px" data-icon="check"></svg>5M runs a month</li>
+          <li><svg class="px" data-icon="check"></svg>Unlimited agents</li>
+          <li><svg class="px" data-icon="check"></svg>Budgets and fallbacks</li>
+          <li><svg class="px" data-icon="check"></svg>90-day trace retention</li>
+          <li><svg class="px" data-icon="check"></svg>Evals on every deploy</li>
         </ul>
       </article>
       <article class="plan" data-reveal style="--i:2">
-        <span class="plan-name">Recall + Verify</span>
-        <div class="plan-price"><span>9.2s</span><small>total p50</small></div>
-        <p class="plan-desc">Multi-entity claim comparison (e.g. 5 tools shortlist).</p>
-        <a class="btn btn-ghost" href="#cta"><span>Quickstart Setup</span></a>
+        <span class="plan-name">Enterprise</span>
+        <div class="plan-price"><span>Custom</span></div>
+        <p class="plan-desc">For regulated and high-volume workloads.</p>
+        <a class="btn btn-ghost" href="#cta"><span>Talk to an engineer</span></a>
         <ul>
-          <li><svg class="px" data-icon="check"></svg>4 Model calls</li>
-          <li><svg class="px" data-icon="check"></svg>3 Parallel search rounds</li>
-          <li><svg class="px" data-icon="check"></svg>Three explicit verdicts</li>
-          <li><svg class="px" data-icon="check"></svg>Zero hallucinated memory</li>
+          <li><svg class="px" data-icon="check"></svg>Self-host in your VPC</li>
+          <li><svg class="px" data-icon="check"></svg>SSO and audit export</li>
+          <li><svg class="px" data-icon="check"></svg>99.99% uptime SLA</li>
+          <li><svg class="px" data-icon="check"></svg>Dedicated engineer</li>
         </ul>
       </article>
     </div>
@@ -470,28 +470,28 @@
     </div>
     <div class="faq-list" id="faq-list">
       <div class="faq-item open" data-reveal>
-        <h3><button type="button" aria-expanded="true" aria-controls="faq-p1" id="faq-b1"><span class="n">01</span><span class="q">Why is memory not an LLM tool?</span><span class="pm" aria-hidden="true"></span></button></h3>
-        <div class="faq-panel" id="faq-p1" role="region" aria-labelledby="faq-b1"><div class="faq-inner"><p>Exposing memory as a tool adds a 1-second round-trip and introduces model weekday arithmetic errors. Resolving dates in code guarantees exact calendar calculation.</p></div></div>
+        <h3><button type="button" aria-expanded="true" aria-controls="faq-p1" id="faq-b1"><span class="n">01</span><span class="q">What is Sigil?</span><span class="pm" aria-hidden="true"></span></button></h3>
+        <div class="faq-panel" id="faq-p1" role="region" aria-labelledby="faq-b1"><div class="faq-inner"><p>Sigil is a control plane for AI agents. It sits between your code and your model providers to deploy, route and trace every run, with budgets and audit logs built in.</p></div></div>
       </div>
       <div class="faq-item" data-reveal style="--i:1">
-        <h3><button type="button" aria-expanded="false" aria-controls="faq-p2" id="faq-b2"><span class="n">02</span><span class="q">How does Minimi prevent hallucinated history?</span><span class="pm" aria-hidden="true"></span></button></h3>
+        <h3><button type="button" aria-expanded="false" aria-controls="faq-p2" id="faq-b2"><span class="n">02</span><span class="q">Which models and frameworks work with it?</span><span class="pm" aria-hidden="true"></span></button></h3>
         <div class="faq-panel" id="faq-p2" role="region" aria-labelledby="faq-b2"><div class="faq-inner"><p>Any model you can reach over HTTP, and any framework that runs in TypeScript or Python. The SDK wraps your existing agent, so you don’t rewrite it.</p></div></div>
       </div>
       <div class="faq-item" data-reveal style="--i:2">
-        <h3><button type="button" aria-expanded="false" aria-controls="faq-p3" id="faq-b3"><span class="n">03</span><span class="q">Why SQLite and BM25 instead of a Vector DB?</span><span class="pm" aria-hidden="true"></span></button></h3>
-        <div class="faq-panel" id="faq-p3" role="region" aria-labelledby="faq-b3"><div class="faq-inner"><p>User histories are thousands of turns queried by date. A date index plus in-memory BM25 gives instant sub-5ms lookups with zero vector database operational complexity.</p></div></div>
+        <h3><button type="button" aria-expanded="false" aria-controls="faq-p3" id="faq-b3"><span class="n">03</span><span class="q">Can I self-host?</span><span class="pm" aria-hidden="true"></span></button></h3>
+        <div class="faq-panel" id="faq-p3" role="region" aria-labelledby="faq-b3"><div class="faq-inner"><p>Yes. Enterprise plans ship as a Helm chart for your VPC. The control plane and all trace data stay inside your network.</p></div></div>
       </div>
       <div class="faq-item" data-reveal style="--i:3">
-        <h3><button type="button" aria-expanded="false" aria-controls="faq-p4" id="faq-b4"><span class="n">04</span><span class="q">Which LLM providers are supported?</span><span class="pm" aria-hidden="true"></span></button></h3>
-        <div class="faq-panel" id="faq-p4" role="region" aria-labelledby="faq-b4"><div class="faq-inner"><p>Minimi supports Anthropic Claude (3.5 Sonnet / Haiku), OpenAI GPT models, and OpenAI-compatible endpoints like NVIDIA NIM.</p></div></div>
+        <h3><button type="button" aria-expanded="false" aria-controls="faq-p4" id="faq-b4"><span class="n">04</span><span class="q">How do budgets work?</span><span class="pm" aria-hidden="true"></span></button></h3>
+        <div class="faq-panel" id="faq-p4" role="region" aria-labelledby="faq-b4"><div class="faq-inner"><p>Set a ceiling per run, per agent or per team. When a run reaches its ceiling, Sigil stops it, records why and routes to the fallback you chose.</p></div></div>
       </div>
       <div class="faq-item" data-reveal style="--i:4">
-        <h3><button type="button" aria-expanded="false" aria-controls="faq-p5" id="faq-b5"><span class="n">05</span><span class="q">What search backends are supported?</span><span class="pm" aria-hidden="true"></span></button></h3>
-        <div class="faq-panel" id="faq-p5" role="region" aria-labelledby="faq-b5"><div class="faq-inner"><p>Tavily Search for clean structured content with an SQLite cache layer, plus an automatic keyless fallback runner for unauthenticated deployments.</p></div></div>
+        <h3><button type="button" aria-expanded="false" aria-controls="faq-p5" id="faq-b5"><span class="n">05</span><span class="q">Is there a free trial?</span><span class="pm" aria-hidden="true"></span></button></h3>
+        <div class="faq-panel" id="faq-p5" role="region" aria-labelledby="faq-b5"><div class="faq-inner"><p>Team is free for 14 days, no card needed. Hobby stays free, up to 100k runs a month.</p></div></div>
       </div>
       <div class="faq-item" data-reveal style="--i:5">
-        <h3><button type="button" aria-expanded="false" aria-controls="faq-p6" id="faq-b6"><span class="n">06</span><span class="q">How are citations verified?</span><span class="pm" aria-hidden="true"></span></button></h3>
-        <div class="faq-panel" id="faq-p6" role="region" aria-labelledby="faq-b6"><div class="faq-inner"><p>A deterministic post-generation pass inspects all [n] markers in the response and strips any that do not correspond to an actual retrieved source from this turn.</p></div></div>
+        <h3><button type="button" aria-expanded="false" aria-controls="faq-p6" id="faq-b6"><span class="n">06</span><span class="q">Where does my data live?</span><span class="pm" aria-hidden="true"></span></button></h3>
+        <div class="faq-panel" id="faq-p6" role="region" aria-labelledby="faq-b6"><div class="faq-inner"><p>On Sigil Cloud, in the region you pick: US, EU or APAC. Self-hosted, wherever you run it. Prompts and outputs are never used for training.</p></div></div>
       </div>
     </div>
   </div>
@@ -502,14 +502,14 @@
   <span class="row-idx">14</span>
   <div class="cell cta">
     <div class="cta-copy">
-      <h2 class="cta-title" data-split aria-label="Experience AI that don’t memory.">
+      <h2 class="cta-title" data-split aria-label="Ship agents that don’t break.">
         <span class="hl" aria-hidden="true">Ship agents</span>
         <span class="hl" aria-hidden="true">that don’t</span>
         <span class="hl" aria-hidden="true"><span class="pxf accent" data-unit data-scramble>break.</span></span>
       </h2>
-      <p class="section-sub" data-reveal style="--i:4">Deterministic temporal retrieval, parallel search, and zero hallucinations.</p>
+      <p class="section-sub" data-reveal style="--i:4">Set up in under ten minutes. See every run from day one.</p>
       <div class="cta-row" data-reveal style="--i:5">
-        <a class="btn" href="/"><svg class="px px-star" data-icon="star"></svg><span>Open Minimi App</span></a>
+        <a class="btn" href="#pricing"><svg class="px px-star" data-icon="star"></svg><span>Open Minimi App</span></a>
         <a class="link-arrow" href="#faq"><span>Talk to an engineer</span><span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></a>
       </div>
     </div>
@@ -526,7 +526,7 @@
   <span class="row-idx">15</span>
   <div class="cell">
     <nav class="foot-grid" aria-label="Footer">
-      <a class="foot-demo spot" href="#cta"><span class="n">01</span><span class="foot-big">Launch Chat App<span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></span></a>
+      <a class="foot-demo spot" href="#cta"><span class="n">01</span><span class="foot-big">Request a demo<span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></span></a>
       <a class="foot-link spot" href="#product"><span class="n">02</span><span class="l">Product<span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></span></a>
       <a class="foot-link spot" href="#features"><span class="n">03</span><span class="l">Features<span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></span></a>
       <a class="foot-link spot" href="#pricing"><span class="n">04</span><span class="l">Pricing<span class="arrow-swap" aria-hidden="true"><svg class="px" data-icon="arrow"></svg><svg class="px" data-icon="arrow"></svg></span></span></a>
@@ -542,11 +542,11 @@
     </div>
 
     <div class="wordmark" id="wordmark" data-anim>
-      <svg viewBox="0 0 72 19" role="img" aria-label="Minimi"></svg>
+      <svg viewBox="0 0 59 19" role="img" aria-label="Sigil"></svg>
     </div>
 
     <div class="foot-legal">
-      <span>© 2026 Minimi &bull; MIT License</span>
+      <span>© 2026 Minimi • MIT License</span>
       <span class="legal-links"><a href="#top">Privacy</a><i>·</i><a href="#top">Terms</a><i>·</i><a href="#top">DPA</a></span>
     </div>
   </div>
@@ -555,5 +555,3 @@
 <script src="js/main.js"></script>
 </body>
 </html>
-
-
