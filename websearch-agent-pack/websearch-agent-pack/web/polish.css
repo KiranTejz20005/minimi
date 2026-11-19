@@ -1,0 +1,64 @@
+/* Final typography + contrast pass. Imported last so it wins over component CSS. Font: Geist. */
+:root { --fw-body: 420; --fw-medium: 500; --fw-strong: 600; }
+body { font-weight: var(--fw-body); }
+h1, h2, h3, h4 { letter-spacing: -0.02em; }
+code, pre, kbd, .mono { font-family: var(--mono); font-variant-ligatures: none; }
+input, textarea, button, select { letter-spacing: inherit; }
+input::placeholder, textarea::placeholder { color: var(--muted) !important; opacity: 0.85; }
+
+/* Sidebar: readable, confident rows */
+.nav-item { font-size: 14px; font-weight: var(--fw-medium); color: var(--text-2); }
+.nav-item svg { color: var(--text-2); }
+.nav-item[data-active], .nav-item:hover { color: var(--text); }
+.sb-title { font-size: 12px; font-weight: var(--fw-strong); color: var(--muted); letter-spacing: 0.01em; }
+.row-main { font-size: 13.5px; font-weight: var(--fw-medium); color: var(--text-2); }
+.row[data-active] .row-main, .row:hover .row-main { color: var(--text); }
+.search-field { font-size: 13.5px; color: var(--muted); }
+.ws-btn { font-size: 14px; font-weight: var(--fw-strong); }
+
+/* Chat */
+.cv__title, .cv .cv__title { font-size: 14px; font-weight: var(--fw-strong); }
+.cv .md { font-size: 15px; line-height: 25px; color: var(--text); font-weight: var(--fw-body); letter-spacing: -0.011em; }
+.cv .md strong { font-weight: var(--fw-strong); }
+.cv .md h1 { font-size: 19px; } .cv .md h2 { font-size: 17px; } .cv .md h3, .cv .md h4 { font-size: 15.5px; }
+.cv .md code { font-size: 13px; }
+.cv .um__bubble { font-size: 14.5px; line-height: 23px; color: var(--text); font-weight: var(--fw-medium); background: var(--surface-3); border-color: var(--border-strong); }
+.cv__landing h2 { font-size: 26px; font-weight: var(--fw-strong); letter-spacing: -0.03em; }
+.cv__landing p { font-size: 14.5px; line-height: 23px; color: var(--text-2); }
+.cv .chip--btn { font-size: 13.5px; font-weight: var(--fw-medium); color: var(--text); background: var(--surface-2); border-color: var(--border-strong); height: 36px; }
+.cv .tc__head { font-size: 13.5px; color: var(--text); }
+.cv .tc__tool { font-size: 12.5px; font-weight: var(--fw-medium); }
+.cv .tc__time, .cv .tc__rhost, .cv .am__from { color: var(--muted); font-size: 12.5px; }
+.cv .tc__results a, .cv .tc__mem, .cv .tc__note, .cv .ap__list { font-size: 13.5px; color: var(--text-2); }
+
+/* Composer */
+.cv .cp { border-color: var(--border-strong); background: var(--surface); }
+.cv .cp textarea { font-size: 15px; line-height: 24px; color: var(--text); font-weight: var(--fw-body); }
+.cv .pill, .cv .model-btn { font-size: 13.5px; font-weight: var(--fw-medium); color: var(--text-2); }
+.cv .pill svg, .cv .model-btn svg { color: var(--text-2); }
+
+/* Right panel */
+.cv .rp__top h2 { font-size: 12.5px; color: var(--text-2); font-weight: var(--fw-strong); }
+.cv .rp__sechead { font-size: 13.5px; font-weight: var(--fw-strong); color: var(--text); }
+.cv .rp__empty { font-size: 13.5px; color: var(--muted); line-height: 21px; }
+.cv .st__label { font-size: 13.5px; font-weight: var(--fw-medium); }
+.cv .st__time, .cv .st__sub { font-size: 12.5px; color: var(--muted); }
+.cv .out__title { font-size: 13.5px; font-weight: var(--fw-strong); }
+
+/* Views */
+.empty-title { font-size: 15px; }
+.btn { font-weight: var(--fw-medium); }
+
+/* Suggested follow-ups under the latest answer */
+.cv__followups { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 6px; }
+.cv .followup {
+  display: inline-flex; align-items: center; max-width: 100%; padding: 7px 13px; border-radius: 999px;
+  border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text-2);
+  font-size: 13.5px; font-weight: var(--fw-medium); line-height: 20px; text-align: left; cursor: pointer;
+  animation: followup-in 260ms var(--ease-out) both;
+  transition: background-color 140ms var(--ease-out), color 140ms var(--ease-out), border-color 140ms var(--ease-out), transform 140ms var(--ease-out);
+}
+.cv .followup:active { transform: scale(0.97); }
+@media (hover: hover) and (pointer: fine) { .cv .followup:hover { background: var(--surface-3); color: var(--text); border-color: color-mix(in srgb, var(--text) 25%, var(--border-strong)); } }
+.cv .followup:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@keyframes followup-in { from { opacity: 0; transform: translateY(6px); } }

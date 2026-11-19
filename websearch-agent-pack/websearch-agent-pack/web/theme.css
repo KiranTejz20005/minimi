@@ -1,0 +1,109 @@
+/* Shared design tokens. Dark is the default (matches the reference); light via [data-theme="light"]. */
+:root {
+  --bg: #0b0b0c;
+  --sidebar: #0f0f10;
+  --surface: #141415;
+  --surface-2: #1c1c1f;
+  --surface-3: #252529;
+  --border: #2b2b30;
+  --border-strong: #3d3d43;
+  --text: #f6f6f7;
+  --text-2: #d6d6db;
+  --muted: #a3a3ac;
+  --faint: #7a7a83;
+  --accent: #4da3ff;
+  --accent-soft: rgba(77, 163, 255, 0.14);
+  --green: #4cc38a;
+  --green-soft: rgba(76, 195, 138, 0.14);
+  --red: #ef6461;
+  --red-soft: rgba(239, 100, 97, 0.14);
+  --amber: #f5a524;
+  --amber-soft: rgba(245, 165, 36, 0.14);
+  --primary: #f2f2f4; /* the white "dark-mode primary" button */
+  --on-primary: #111113;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-lg: 14px;
+  --font: "Geist", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "Geist Mono", "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --shadow-pop: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 14px 32px -10px rgba(0, 0, 0, 0.7);
+
+  /* MessageActions component tokens (read as var(--aui-*, fallback)) */
+  --aui-surface: var(--surface);
+  --aui-overlay: var(--surface-3);
+  --aui-ink: var(--text);
+  --aui-muted: var(--muted);
+  --aui-border: var(--border);
+  --aui-border-strong: var(--border-strong);
+  --aui-subtle: rgba(255, 255, 255, 0.04);
+  --aui-primary: var(--primary);
+  --aui-on-primary: var(--on-primary);
+  --aui-success: var(--green);
+  --aui-green: var(--green);
+  --aui-blue: var(--accent);
+  --aui-placeholder: var(--faint);
+  --aui-focus: rgba(77, 163, 255, 0.8);
+  --aui-font: var(--font);
+  --aui-radius: var(--radius);
+  --aui-radius-sm: var(--radius-sm);
+  --aui-ease: var(--ease-out);
+  --aui-shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --aui-shadow-popover: var(--shadow-pop);
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #f6f6f7;
+  --sidebar: #efeff1;
+  --surface: #ffffff;
+  --surface-2: #f4f4f6;
+  --surface-3: #ffffff;
+  --border: #e4e4e8;
+  --border-strong: #d2d2d8;
+  --text: #17171a;
+  --text-2: #45454c;
+  --muted: #73737c;
+  --faint: #a2a2ab;
+  --accent: #0b64e0;
+  --accent-soft: rgba(11, 100, 224, 0.1);
+  --green: #1e8a4f;
+  --green-soft: rgba(30, 138, 79, 0.1);
+  --red: #d33a37;
+  --red-soft: rgba(211, 58, 55, 0.1);
+  --amber: #b87503;
+  --amber-soft: rgba(184, 117, 3, 0.12);
+  --primary: #17171a;
+  --on-primary: #fcfcfc;
+  --shadow-pop: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 14px 32px -10px rgba(0, 0, 0, 0.2);
+  --aui-subtle: rgba(0, 0, 0, 0.03);
+  --aui-focus: rgba(11, 100, 224, 0.7);
+  --aui-shadow-card: 0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  color-scheme: light;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 22px;
+  letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "calt", "kern";
+  font-optical-sizing: auto;
+  overflow: hidden;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+:where(button, input, textarea, select) { font-family: inherit; }
+::selection { background: var(--accent-soft); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
