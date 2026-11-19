@@ -12,7 +12,7 @@ const envSchema = z.object({
   /** Slower, higher-quality model for the "Smart" option (hard reasoning). */
   MODEL_SMART: z.string().optional(),
   /** Interface to bind. 127.0.0.1 for local dev; 0.0.0.0 in containers. */
-  HOST: z.string().default("127.0.0.1"),
+  HOST: z.string().default(process.env.RENDER ? "0.0.0.0" : "127.0.0.1"), // Render only detects ports bound to 0.0.0.0
   /** If set, the whole app (except /health) sits behind HTTP Basic auth with this password. */
   ACCESS_TOKEN: z.string().optional(),
   ACCESS_USER: z.string().default("minimi"),
