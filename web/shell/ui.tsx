@@ -1,14 +1,6 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type KeyboardEvent as RKeyboardEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { IconCheck, IconChevronLeft, IconChevronRight } from "./icons";
+import { DropdownMenu, type DropdownMenuItem } from "./DropdownMenu";
 
 const FOCUSABLE =
   'a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
@@ -143,7 +135,7 @@ export function ConfirmDialog({
   );
 }
 
-/* ── Menu: portal, viewport-clamped, keyboard navigable, optional one-level submenu ── */
+/* ── Menu: anchored DropdownMenu for context menus and legacy callers ── */
 export type MenuItem = {
   key: string;
   label?: string;
@@ -166,6 +158,35 @@ export function anchorFromPoint(x: number, y: number): MenuAnchor {
   return { rect: new DOMRect(x, y, 0, 0) };
 }
 
+function toDropdownItems(items: MenuItem[]): DropdownMenuItem[] {
+  const out: DropdownMenuItem[] = [];
+  let pendingDivider = false;
+  for (const it of items) {
+    if (it.separator) {
+      pendingDivider = true;
+      continue;
+    }
+    if (it.heading) {
+      // Skip non-interactive headings; keep a divider so the following group stays separated
+      pendingDivider = true;
+      continue;
+    }
+    out.push({
+      label: it.label ?? "",
+      icon: it.icon,
+      danger: it.danger,
+      checked: it.checked,
+      type: it.checked !== undefined ? "radio" : undefined,
+      shortcut: it.hint,
+      divider: pendingDivider || undefined,
+      onSelect: it.onSelect,
+      submenu: it.submenu ? toDropdownItems(it.submenu) : undefined,
+    });
+    pendingDivider = false;
+  }
+  return out;
+}
+
 export function Menu({
   anchor,
   items,
@@ -181,143 +202,64 @@ export function Menu({
   align?: "start" | "end";
   label?: string;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [stack, setStack] = useState<{ title: string; items: MenuItem[] }[]>([]);
-  const [pos, setPos] = useState<{ left: number; top: number; origin: string } | null>(null);
-  const current = stack.length ? stack[stack.length - 1]!.items : items;
+  const [open, setOpen] = useState(false);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  const focusEl = useRef(anchor.el);
+  focusEl.current = anchor.el;
 
-  const close = useCallback(() => {
-    closeRef.current();
-    const el = anchor.el;
-    if (el && document.contains(el)) el.focus();
-  }, [anchor.el]);
-
-  useLayoutEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const h = node.offsetHeight;
-    const r = anchor.rect;
-    const M = 8;
-    let left = align === "end" ? r.right - width : r.left;
-    left = Math.max(M, Math.min(left, window.innerWidth - width - M));
-    let top = r.bottom + 4;
-    let origin = `${align === "end" ? "right" : "left"} top`;
-    if (top + h > window.innerHeight - M) {
-      const above = r.top - h - 4;
-      if (above >= M) {
-        top = above;
-        origin = origin.replace("top", "bottom");
-      } else {
-        top = Math.max(M, window.innerHeight - h - M);
-      }
-    }
-    setPos({ left, top, origin });
-  }, [anchor, width, align, current]);
-
+  // Open after mount so DropdownMenu treats this as a closed→open transition and focuses the first item
   useEffect(() => {
-    const first = ref.current?.querySelector<HTMLElement>('[role^="menuitem"]');
-    first?.focus();
-  }, [stack.length]);
-
-  useEffect(() => {
-    const down = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) closeRef.current();
-    };
-    const blur = () => closeRef.current();
-    document.addEventListener("mousedown", down, true);
-    window.addEventListener("blur", blur);
-    window.addEventListener("resize", blur);
-    return () => {
-      document.removeEventListener("mousedown", down, true);
-      window.removeEventListener("blur", blur);
-      window.removeEventListener("resize", blur);
-    };
+    setOpen(true);
   }, []);
 
-  const onKey = (e: RKeyboardEvent) => {
-    const els = [...(ref.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])];
-    const i = els.indexOf(document.activeElement as HTMLElement);
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      close();
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      els[(i + 1) % els.length]?.focus();
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      els[(i - 1 + els.length) % els.length]?.focus();
-    } else if (e.key === "Home") {
-      e.preventDefault();
-      els[0]?.focus();
-    } else if (e.key === "End") {
-      e.preventDefault();
-      els[els.length - 1]?.focus();
-    } else if (e.key === "ArrowLeft" && stack.length) {
-      e.preventDefault();
-      setStack((s) => s.slice(0, -1));
-    } else if (e.key === "Tab") {
-      e.preventDefault();
-    }
-  };
+  useEffect(() => {
+    if (!open) return;
+    const dismiss = () => closeRef.current();
+    window.addEventListener("blur", dismiss);
+    window.addEventListener("resize", dismiss);
+    return () => {
+      window.removeEventListener("blur", dismiss);
+      window.removeEventListener("resize", dismiss);
+    };
+  }, [open]);
 
-  const select = (it: MenuItem) => {
-    if (it.submenu) {
-      setStack((s) => [...s, { title: it.label ?? "", items: it.submenu! }]);
-      return;
-    }
+  const r = anchor.rect;
+  const w = Math.max(r.width, 1);
+  const h = Math.max(r.height, 1);
+
+  const finishClose = () => {
     closeRef.current();
-    const el = anchor.el;
-    if (el && document.contains(el)) el.focus();
-    it.onSelect?.();
+    const el = focusEl.current;
+    if (el && document.contains(el)) el.focus({ preventScroll: true });
   };
 
   return createPortal(
     <div
-      ref={ref}
-      className="menu"
-      role="menu"
-      aria-label={label}
+      className="ui-dmc-anchor"
       style={{
-        left: pos?.left ?? 0,
-        top: pos?.top ?? 0,
-        width,
-        visibility: pos ? "visible" : "hidden",
-        transformOrigin: pos?.origin,
+        position: "fixed",
+        left: r.left,
+        top: r.top,
+        width: w,
+        height: h,
+        zIndex: 1000,
       }}
-      onKeyDown={onKey}
     >
-      {stack.length > 0 && (
-        <button type="button" role="menuitem" className="menu-item menu-back" onClick={() => setStack((s) => s.slice(0, -1))}>
-          <IconChevronLeft size={14} />
-          <span>{stack[stack.length - 1]!.title}</span>
-        </button>
-      )}
-      {current.map((it) =>
-        it.separator ? (
-          <div key={it.key} className="menu-sep" role="separator" />
-        ) : it.heading ? (
-          <div key={it.key} className="menu-heading">
-            {it.label}
-          </div>
-        ) : (
-          <button
-            key={it.key}
-            type="button"
-            role={it.checked !== undefined ? "menuitemradio" : "menuitem"}
-            aria-checked={it.checked}
-            className={`menu-item ${it.danger ? "danger" : ""}`}
-            onClick={() => select(it)}
-          >
-            <span className="menu-icon">{it.icon}</span>
-            <span className="menu-label">{it.label}</span>
-            {it.checked && <IconCheck size={14} />}
-            {it.hint && <kbd className="kbd">{it.hint}</kbd>}
-            {it.submenu && <IconChevronRight size={14} />}
-          </button>
-        ),
-      )}
+      <DropdownMenu
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) finishClose();
+        }}
+        items={toDropdownItems(items)}
+        width={width}
+        align={align}
+        aria-label={label}
+        className="ui-dmc-anchor__menu"
+        /* Non-focusable hit target: avoids trapping focus on an aria-hidden phantom button (esp. context menus) */
+        trigger={() => <span aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none" }} />}
+      />
     </div>,
     document.body,
   );

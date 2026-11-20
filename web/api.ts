@@ -143,7 +143,7 @@ export type ChatRequest = {
   conversationId?: string;
   tz?: string;
   model?: "auto" | "main" | "fast" | "smart";
-  /** Ask the user before every web search. */
+  /** Confirm uncached web search / page fetch once per turn. */
   approval?: boolean;
   attachmentIds?: string[];
   /** Re-run this (latest) turn; the old answer becomes an earlier version of the new one. */
@@ -173,8 +173,14 @@ export type StreamHandlers = {
     results?: { title: string; url: string }[];
     error?: string;
   }) => void;
-  onApprovalRequest?: (p: { id: string; queries: string[] }) => void;
+  onApprovalRequest?: (p: {
+    id: string;
+    queries: string[];
+    actions?: { tool: string; label: string }[];
+  }) => void;
   onApprovalResult?: (p: { id: string; approved: boolean }) => void;
+  onToolStart?: (p: { tools: { id: string; tool: string; label: string }[] }) => void;
+  onToolDone?: (p: { id: string; tool: string; label: string; ms: number; error?: string }) => void;
   onToken?: (text: string) => void;
   /** Keys are citation numbers. */
   onSources?: (s: Record<string, { url: string; title: string; publishedAt?: string | null }>) => void;
@@ -232,6 +238,8 @@ export async function streamChat(body: ChatRequest, h: StreamHandlers, signal?: 
           case "memory": h.onMemory?.(p); break;
           case "search_start": h.onSearchStart?.(p); break;
           case "search_done": h.onSearchDone?.(p); break;
+          case "tool_start": h.onToolStart?.(p); break;
+          case "tool_done": h.onToolDone?.(p); break;
           case "approval_request": h.onApprovalRequest?.(p); break;
           case "approval_result": h.onApprovalResult?.(p); break;
           case "token": h.onToken?.(String(p.text ?? "")); break;

@@ -230,7 +230,9 @@ export function useChat(p: Params) {
             gotEvent = true;
             batch += 1;
             const b = batch;
-            queries.forEach((q, i) => cards.push({ id: ids?.[i] ?? `b${b}-${i}`, query: q, status: "running", batch: b }));
+            queries.forEach((q, i) =>
+              cards.push({ id: ids?.[i] ?? `b${b}-${i}`, tool: "web_search", query: q, status: "running", batch: b }),
+            );
             syncCards();
             if (alive()) setRun((r) => (r ? { ...r, batches: [...r.batches, { id: b, queries, done: 0, ms: 0 }] } : r));
           },
@@ -259,14 +261,36 @@ export function useChat(p: Params) {
                   : r,
               );
           },
+          onToolStart: ({ tools }) => {
+            gotEvent = true;
+            batch += 1;
+            const b = batch;
+            for (const t of tools) {
+              cards.push({ id: t.id, tool: t.tool, query: t.label, status: "running", batch: b });
+            }
+            syncCards();
+          },
+          onToolDone: (d) => {
+            const idx = cards.findIndex((c) => c.id === d.id);
+            if (idx < 0) return;
+            const declined = d.error === "declined by user";
+            updateCard(idx, {
+              status: d.error ? (declined ? "declined" : "error") : "done",
+              ms: d.ms,
+              error: d.error,
+              query: d.label || cards[idx].query,
+            });
+            syncCards();
+          },
           onApprovalRequest: ({ id, queries }) => {
             approvalIds.current.add(id);
             approvals.add({ id, conversationId: convRef.current ?? convId, queries, createdAt: Date.now() });
             patch((m) => ({ ...m, approval: { id, queries, status: "pending", expiresAt: Date.now() + 120_000 } }));
           },
           onApprovalResult: ({ id, approved }) => {
-            approvals.remove(id);
             approvalIds.current.delete(id);
+            const nextStatus: "approved" | "declined" | "expired" = approved ? "approved" : "declined";
+            approvals.resolve(id, nextStatus);
             patch((m) =>
               m.approval?.id === id
                 ? {
@@ -381,7 +405,6 @@ export function useChat(p: Params) {
         message: msg,
         conversationId: convRef.current,
         model: settings.model,
-        approval: settings.approval,
         attachmentIds: atts.map((a) => a.id),
       };
       setMessages((prev) => {
@@ -424,7 +447,6 @@ export function useChat(p: Params) {
         conversationId: convRef.current,
         regenerateTurnId: last.turnId,
         model: settings.model,
-        approval: settings.approval,
       },
       "regen",
     );

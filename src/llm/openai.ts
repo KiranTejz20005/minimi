@@ -101,7 +101,12 @@ export function createOpenAILlm(apiKey?: string): LLM {
             parameters: (t as { input_schema: unknown }).input_schema,
           },
         }));
-        body.tool_choice = req.forceTool ? "required" : "auto";
+        body.tool_choice =
+          req.forceTool && req.forceToolName
+            ? { type: "function", function: { name: req.forceToolName } }
+            : req.forceTool
+              ? "required"
+              : "auto";
       }
 
       let res: Response | undefined;

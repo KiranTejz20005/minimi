@@ -47,7 +47,13 @@ export function createAnthropicLlm(apiKey?: string): LLM {
           system: req.system,
           messages: req.messages as MessageParam[],
           tools: req.tools,
-          ...(req.forceTool && req.tools?.length ? { tool_choice: { type: "any" } } : {}),
+          ...(req.forceTool && req.tools?.length
+            ? {
+                tool_choice: req.forceToolName
+                  ? { type: "tool", name: req.forceToolName }
+                  : { type: "any" },
+              }
+            : {}),
           thinking: { type: "between_tools" },
           output_config: { effort: "medium" },
         } as unknown as Parameters<typeof client.messages.stream>[0],

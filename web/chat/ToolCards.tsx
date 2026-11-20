@@ -55,18 +55,35 @@ function Card({
   );
 }
 
+/** Renders web_search + fetch_url/memory_search/lookup_claims cards from useChat. User: add more tools. */
+function toolVerb(tool: string, status: SearchCardData["status"]): string {
+  if (status === "running") {
+    if (tool === "fetch_url") return "Fetching";
+    if (tool === "memory_search") return "Searching memory";
+    if (tool === "lookup_claims") return "Looking up claims";
+    return "Searching";
+  }
+  if (status === "declined") return "Declined";
+  if (status === "error") {
+    if (tool === "fetch_url") return "Fetch failed";
+    if (tool === "memory_search") return "Memory search failed";
+    if (tool === "lookup_claims") return "Claims lookup failed";
+    return "Search failed";
+  }
+  if (tool === "fetch_url") return "Fetched";
+  if (tool === "memory_search") return "Memory";
+  if (tool === "lookup_claims") return "Claims";
+  return "Searched";
+}
+
 export function SearchCard({ card }: { card: SearchCardData }) {
   const { status } = card;
-  const label =
-    status === "running" ? (
-      <>Searching <b>{card.query}</b></>
-    ) : status === "declined" ? (
-      <>Declined <b>{card.query}</b></>
-    ) : status === "error" ? (
-      <>Search failed <b>{card.query}</b></>
-    ) : (
-      <>Searched <b>{card.query}</b></>
-    );
+  const tool = card.tool || "web_search";
+  const label = (
+    <>
+      {toolVerb(tool, status)} <b>{card.query}</b>
+    </>
+  );
   const right =
     status === "running" ? (
       <span className="tc__time"><Spinner size={12} /></span>
@@ -80,9 +97,13 @@ export function SearchCard({ card }: { card: SearchCardData }) {
   const results = card.results ?? [];
   const expandable = status !== "running" && (results.length > 0 || status === "error" || status === "declined");
   return (
-    <Card icon={<Globe />} tool="web_search" label={label} right={right} expandable={expandable} state={status}>
+    <Card icon={<Globe />} tool={tool} label={label} right={right} expandable={expandable} state={status}>
       {status === "error" || status === "declined" ? (
-        <p className="tc__note">{status === "declined" ? "You declined this search, so the agent answered without it." : card.error || "The search provider returned an error."}</p>
+        <p className="tc__note">
+          {status === "declined"
+            ? "You declined this network action, so the agent continued without it."
+            : card.error || "The tool returned an error."}
+        </p>
       ) : (
         <ul className="tc__results">
           {results.map((r, i) => (
@@ -159,7 +180,7 @@ export function ApprovalCard({ approval, toast }: { approval: ApprovalData; toas
   return (
     <div className="ap" data-status={expired ? "expired" : approval.status} role="group" aria-label="Approval needed">
       <div className="ap__head">
-        <span className="ap__title">{pending && !expired ? "Allow this web search?" : expired ? "Approval expired" : approval.status === "approved" ? "Search approved" : "Search declined"}</span>
+        <span className="ap__title">{pending && !expired ? "Allow this action?" : expired ? "Approval expired" : approval.status === "approved" ? "Approved" : "Declined"}</span>
         {pending && !expired && <span className="ap__timer" aria-live="off">Auto-declines in {mm}</span>}
         {!pending && !expired && (
           <span className="ap__chip">{approval.status === "approved" ? <Check /> : <Close />}</span>

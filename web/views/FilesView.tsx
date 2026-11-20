@@ -3,6 +3,8 @@ import { api, type AttachmentRef, type FileRow, type Project } from "../api";
 import { IconChat, IconDownload, IconFile, IconFolder, IconGrid, IconList, IconPlus, IconSearch, IconTrash, IconUpload, IconX } from "../shell/icons";
 import { useToast } from "../shell/toast";
 import { ConfirmDialog, Dialog, Empty, Spinner } from "../shell/ui";
+import { ContextMenu, Loading, Skeleton, TreeView, type TreeNode } from "../ui";
+import { SideFolder } from "../ui/SideFolder";
 import { errMsg, fmtBytes, relTime, useStored } from "../shell/util";
 
 const KIND_LABEL: Record<string, string> = { MD: "MD", CSV: "CSV", JSON: "JSON", CODE: "CODE", TXT: "TXT" };
@@ -118,6 +120,39 @@ export function FilesView({
 
   const selected = projects.find((p) => p.id === selectedProject);
 
+  const fileTree = useMemo((): TreeNode[] => {
+    if (!files) return [];
+    const unfiled = files.filter((f) => !f.project_id);
+    const nodes: TreeNode[] = shownProjects.map((p) => ({
+      id: `proj:${p.id}`,
+      label: p.name,
+      icon: <IconFolder size={16} />,
+      meta: p.file_count,
+      children: files
+        .filter((f) => f.project_id === p.id)
+        .map((f) => ({ id: `file:${f.id}`, label: f.name, icon: <IconFile size={16} />, meta: f.kind })),
+    }));
+    if (unfiled.length) {
+      nodes.push({
+        id: "proj:unfiled",
+        label: "Not in a folder",
+        icon: <IconFile size={16} />,
+        children: unfiled.map((f) => ({ id: `file:${f.id}`, label: f.name, icon: <IconFile size={16} />, meta: f.kind })),
+      });
+    }
+    return nodes;
+  }, [files, shownProjects]);
+
+  const onTreeSelect = (id: string) => {
+    if (id.startsWith("file:")) {
+      const fid = id.slice(5);
+      const f = files?.find((x) => x.id === fid);
+      if (f) setPreview(f);
+    } else if (id.startsWith("proj:") && id !== "proj:unfiled") {
+      setSelectedProject(id.slice(5));
+    }
+  };
+
   return (
     <div
       className="view files-view"
@@ -174,23 +209,44 @@ export function FilesView({
           {shownProjects.length ? (
             <div className="folders" data-layout={layout}>
               {shownProjects.map((p) => (
-                <button key={p.id} type="button" className="folder-card" aria-pressed={selectedProject === p.id} onClick={() => setSelectedProject(selectedProject === p.id ? null : p.id)}>
-                  <span className="folder-ico">
-                    <IconFolder size={22} />
-                  </span>
-                  <span className="folder-text">
-                    <strong>{p.name}</strong>
-                    <small>
-                      {p.chat_count} {p.chat_count === 1 ? "chat" : "chats"} · {p.file_count} {p.file_count === 1 ? "file" : "files"}
-                    </small>
-                  </span>
-                </button>
+                <ContextMenu
+                  key={p.id}
+                  aria-label={`Actions for ${p.name}`}
+                  items={[
+                    {
+                      label: "Open folder",
+                      onSelect: () => setSelectedProject(selectedProject === p.id ? null : p.id),
+                    },
+                    {
+                      label: "Clear filter",
+                      disabled: selectedProject !== p.id,
+                      onSelect: () => setSelectedProject(null),
+                    },
+                  ]}
+                >
+                  <button type="button" className="folder-card" aria-pressed={selectedProject === p.id} onClick={() => setSelectedProject(selectedProject === p.id ? null : p.id)}>
+                    <span className="folder-ico">
+                      <IconFolder size={22} />
+                    </span>
+                    <span className="folder-text">
+                      <strong>{p.name}</strong>
+                      <small>
+                        {p.chat_count} {p.chat_count === 1 ? "chat" : "chats"} · {p.file_count} {p.file_count === 1 ? "file" : "files"}
+                      </small>
+                    </span>
+                  </button>
+                </ContextMenu>
               ))}
             </div>
           ) : (
             <Empty icon={<IconFolder size={22} />} title={projects.length ? "No folders match" : "No folders yet"}>
+              {!projects.length && <SideFolder className="files-empty-art" />}
               {projects.length ? "Try a different filter or search." : "Folders are projects — create one to group related chats and their files."}
             </Empty>
+          )}
+
+          {files !== null && fileTree.length > 0 && (
+            <TreeView items={fileTree} aria-label="Projects and files" className="files-tree" onSelect={onTreeSelect} defaultExpanded={shownProjects.slice(0, 3).map((p) => `proj:${p.id}`)} />
           )}
         </section>
 
@@ -221,9 +277,11 @@ export function FilesView({
           </div>
 
           {files === null ? (
-            <div className="loading-row">
-              <Spinner />
-            </div>
+            <Loading label="Loading files" className="files-grid-loading">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} height={140} radius={10} />
+              ))}
+            </Loading>
           ) : shownFiles.length ? (
             <div className="files-grid">
               {shownFiles.map((f) => (

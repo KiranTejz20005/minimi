@@ -2,6 +2,8 @@ import type { AttachmentRef, ChatMessage, MemoryEvent, SearchRef, SourceRef } fr
 
 export type SearchCardData = {
   id: string;
+  /** Tool name shown on the card; defaults to web_search. Used by ToolCards + useChat. */
+  tool?: string;
   query: string;
   status: "running" | "done" | "error" | "declined";
   ms?: number;

@@ -282,6 +282,8 @@ export async function runTurn(
         });
       },
     };
+    // Pass db/store/approvalMode so loop can run memory_search/lookup_claims and gate permissions.
+    // Called from server.ts POST /api/chat. User: add tools + fix useless permission prompts.
     loopResult = await runAgentLoop({
       llm,
       system,
@@ -290,6 +292,8 @@ export async function runTurn(
       callbacks: metricHandlers,
       searchProvider: input.searchProvider,
       model: input.model,
+      db,
+      store: new MemoryStore(db),
       forceSearch: cfg.FORCE_SEARCH !== "0" && !input.llm && needsFreshData(input.message, !!input.contextMessage, recall?.kind === "hit")
         ? async () => {
             const raw = searchQueryFrom(input.message);

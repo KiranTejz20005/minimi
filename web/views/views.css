@@ -152,5 +152,30 @@
 .hb-track { height: 8px; border-radius: 4px; background: var(--surface-3); overflow: hidden; }
 .hb-bar { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
 .hb-val { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* Layout hooks for AffectUI embeds (AnalyticsView, RunsView, FilesView, IntegrationsModal). Imported via App CSS bundle. User: place components to improve interaction. */
+.analytics-summary { margin: 16px 0 8px; max-width: 480px; }
+.analytics-rating { display: flex; align-items: center; gap: 10px; margin: 4px 0 8px; }
+.analytics-rating__meta { color: var(--muted); }
+.runs-input-stack { display: flex; flex-direction: column; gap: 12px; }
+.runs-recent { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.runs-recent li {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border);
+  font-size: 12px;
+}
+.runs-recent__status { flex: none; font-weight: 500; color: var(--muted); min-width: 64px; }
+.runs-recent li[data-status="approved"] .runs-recent__status { color: var(--green); }
+.runs-recent li[data-status="declined"] .runs-recent__status,
+.runs-recent li[data-status="expired"] .runs-recent__status { color: var(--red); }
+.runs-recent__q { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.analytics-skel-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 16px; }
+.analytics-loading { padding: 24px 20px; }
+.run-plan-progress { margin-bottom: 12px; max-width: 100%; }
+.runs-decisions { max-width: 100%; }
+.runs-list-loading, .run-detail-loading { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+.files-empty-art { max-width: 220px; margin: 8px auto 12px; }
+.files-tree { margin-top: 12px; max-width: 100%; }
+.int-beam { margin: 0 0 12px; padding: 8px 4px 4px; }
+.int-wheel { margin: 0 0 16px; max-height: 220px; overflow: hidden; }
 @media (max-width: 720px) { .hbars li { grid-template-columns: 110px 1fr 28px; } .view-inner { padding: 24px 16px 40px; } }
 @media (prefers-reduced-motion: reduce) { .bar { animation: none; } }

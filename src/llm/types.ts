@@ -40,6 +40,8 @@ export interface LLMStreamRequest {
   maxTokens?: number;
   /** Require the model to call a tool this step (used to force web search on time-sensitive questions). */
   forceTool?: boolean;
+  /** When set with forceTool, require this specific tool (e.g. web_search). Read by anthropic.ts / openai.ts. */
+  forceToolName?: string;
 }
 
 export interface LLMJsonRequest {
