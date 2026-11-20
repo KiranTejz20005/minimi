@@ -16,6 +16,7 @@ day, re-checks those exact claims on the live web, and reports what changed — 
   health checks, graceful shutdown.
 
 > **Reviewer in a hurry?** → jump to [Quick start](#quick-start-5-minutes) and then [What to try](#what-to-try-a-2-minute-tour).
+> **Deploying?** Backend on Render, frontend on Vercel: see [DEPLOY.md](DEPLOY.md).
 
 ---
 

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { api, type AttachmentRef, type Integrations } from "../api";
+import { DropdownMenu } from "../shell/DropdownMenu";
 import type { ChatSettings, Toast } from "./types";
-import { ArrowUp, Check, Chevron, Close, FileIcon, Hand, Mic, Paperclip, Plus, Spinner, StopSquare } from "./icons";
+import { ArrowUp, Chevron, Close, FileIcon, Mic, Paperclip, Plus, Spinner, StopSquare } from "./icons";
 
 const MAX_BYTES = 500_000;
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|log|ts|tsx|js|jsx|mjs|py|go|rs|java|c|h|cpp|html|css|sql|sh|yml|yaml|xml|toml|ini|env)$/i;
@@ -22,45 +23,6 @@ interface Props {
   toast: Toast;
 }
 
-/** Click-outside + Esc for a popup menu. Esc returns focus to the trigger. */
-function usePopup(trigger: React.RefObject<HTMLElement | null>) {
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const down = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (!box.current?.contains(t) && !trigger.current?.contains(t)) setOpen(false);
-    };
-    const key = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        setOpen(false);
-        trigger.current?.focus();
-      }
-    };
-    document.addEventListener("pointerdown", down);
-    document.addEventListener("keydown", key, true);
-    return () => {
-      document.removeEventListener("pointerdown", down);
-      document.removeEventListener("keydown", key, true);
-    };
-  }, [open, trigger]);
-  // Focus the first item when opening via keyboard/click.
-  useEffect(() => {
-    if (open) box.current?.querySelector<HTMLElement>('[role^="menuitem"]')?.focus({ preventScroll: true });
-  }, [open]);
-  return { open, setOpen, box };
-}
-
-function menuKeys(e: KeyboardEvent<HTMLElement>) {
-  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-  const items = [...e.currentTarget.querySelectorAll<HTMLElement>('[role^="menuitem"]')];
-  const i = items.indexOf(document.activeElement as HTMLElement);
-  e.preventDefault();
-  items[(i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
-}
-
 const SR: any = typeof window !== "undefined" ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition : null;
 
 export function Composer({ streaming, hasMessages, conversationId, integrations, settings, setSettings, focusToken, onSend, onStop, toast }: Props) {
@@ -70,10 +32,6 @@ export function Composer({ streaming, hasMessages, conversationId, integrations,
   const [recording, setRecording] = useState(false);
   const ta = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const plusBtn = useRef<HTMLButtonElement>(null);
-  const modelBtn = useRef<HTMLButtonElement>(null);
-  const plus = usePopup(plusBtn);
-  const model = usePopup(modelBtn);
   const recRef = useRef<any>(null);
   const baseText = useRef("");
 
@@ -188,21 +146,22 @@ export function Composer({ streaming, hasMessages, conversationId, integrations,
           : integrations.llm.mainModel;
   const short = (s: string) => s.split("/").pop() ?? s;
 
-  const pick = (m: ChatSettings["model"]) => {
-    setSettings({ ...settings, model: m });
-    model.setOpen(false);
-    modelBtn.current?.focus();
-  };
+  const pick = (m: ChatSettings["model"]) => setSettings({ ...settings, model: m });
 
-  const menuItem = (m: ChatSettings["model"], title: string, sub: string): ReactNode => (
-    <button key={m} type="button" role="menuitemradio" aria-checked={settings.model === m} className="pm__item" onClick={() => pick(m)}>
-      <span className="pm__check">{settings.model === m && <Check size={13} />}</span>
-      <span className="pm__text">
-        <span>{title}</span>
-        <small>{sub}</small>
-      </span>
-    </button>
-  );
+  const modelItems = (
+    [
+      ["auto", "Auto", integrations ? short(modelName("auto")) : "Best available model"],
+      ["main", "Main", integrations ? short(modelName("main")) : "Most capable"],
+      ["smart", "Smart", integrations ? short(modelName("smart")) + " · slower, best reasoning" : "Slower, best reasoning"],
+      ["fast", "Fast", integrations ? short(modelName("fast")) : "Quicker, lighter"],
+    ] as const
+  ).map(([m, title, sub]) => ({
+    label: title,
+    description: sub,
+    checked: settings.model === m,
+    type: "radio" as const,
+    onSelect: () => pick(m),
+  }));
 
   return (
     <form
@@ -243,80 +202,54 @@ export function Composer({ streaming, hasMessages, conversationId, integrations,
 
       <div className="cp__bar">
         <div className="cp__left">
-          <div className="pm">
-            <button
-              ref={plusBtn}
-              type="button"
-              className="icon-btn"
-              aria-label="Add"
-              aria-haspopup="menu"
-              aria-expanded={plus.open}
-              onClick={() => plus.setOpen((o) => !o)}
-            >
-              <Plus />
-            </button>
-            {plus.open && (
-              <div ref={plus.box} className="pm__menu pm__menu--up" role="menu" aria-label="Add" onKeyDown={menuKeys}>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="pm__item"
-                  onClick={() => { plus.setOpen(false); fileInput.current?.click(); }}
-                >
-                  <span className="pm__check"><Paperclip /></span>
-                  <span className="pm__text"><span>Attach text file</span><small>.txt .md .csv .json and code, up to 500 KB</small></span>
-                </button>
-              </div>
+          <DropdownMenu
+            side="top"
+            align="start"
+            width={280}
+            aria-label="Add"
+            items={[
+              {
+                label: "Attach text file",
+                description: ".txt .md .csv .json and code, up to 500 KB",
+                icon: <Paperclip />,
+                onSelect: () => fileInput.current?.click(),
+              },
+            ]}
+            trigger={({ triggerProps }) => (
+              <button type="button" className="icon-btn" aria-label="Add" {...triggerProps}>
+                <Plus />
+              </button>
             )}
-            <input
-              ref={fileInput}
-              name="attachments"
-              type="file"
-              multiple
-              hidden
-              accept={ACCEPT}
-              onChange={(e) => {
-                if (e.target.files?.length) void addFiles(e.target.files);
-                e.target.value = "";
-              }}
-            />
-          </div>
+          />
+          <input
+            ref={fileInput}
+            name="attachments"
+            type="file"
+            multiple
+            hidden
+            accept={ACCEPT}
+            onChange={(e) => {
+              if (e.target.files?.length) void addFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
 
-          <button
-            type="button"
-            className="pill"
-            aria-pressed={settings.approval}
-            title="Ask me before the agent searches the web"
-            onClick={() => setSettings({ ...settings, approval: !settings.approval })}
-          >
-            <Hand />
-            Request approval
-          </button>
         </div>
 
         <div className="cp__right">
-          <div className="pm">
-            <button
-              ref={modelBtn}
-              type="button"
-              className="model-btn"
-              aria-haspopup="menu"
-              aria-expanded={model.open}
-              aria-label={`Model: ${modelLabel}`}
-              onClick={() => model.setOpen((o) => !o)}
-            >
-              {modelLabel}
-              <Chevron size={12} />
-            </button>
-            {model.open && (
-              <div ref={model.box} className="pm__menu pm__menu--up pm__menu--right" role="menu" aria-label="Model" onKeyDown={menuKeys}>
-                {menuItem("auto", "Auto", integrations ? short(modelName("auto")) : "Best available model")}
-                {menuItem("main", "Main", integrations ? short(modelName("main")) : "Most capable")}
-                {menuItem("smart", "Smart", integrations ? short(modelName("smart")) + " · slower, best reasoning" : "Slower, best reasoning")}
-                {menuItem("fast", "Fast", integrations ? short(modelName("fast")) : "Quicker, lighter")}
-              </div>
+          <DropdownMenu
+            side="top"
+            align="end"
+            width={260}
+            aria-label="Model"
+            items={modelItems}
+            trigger={({ open, triggerProps }) => (
+              <button type="button" className="model-btn" aria-label={`Model: ${modelLabel}`} {...triggerProps}>
+                {modelLabel}
+                <Chevron size={12} data-open={open || undefined} />
+              </button>
             )}
-          </div>
+          />
 
           <button
             type="button"

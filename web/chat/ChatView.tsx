@@ -77,14 +77,14 @@ export function ChatView(props: ChatViewProps) {
   const { conversationId, integrations, onConversationCreated, onChanged, onOpenRun, focusToken, onOpenIntegrations } = props;
 
   /* ── Settings (persisted) ── */
+  // Composer no longer exposes approval; read-only tools never prompt (user: only important things).
   const [settings, setSettingsState] = useState<ChatSettings>(() => {
     const m = readLS(LS.model);
-    return { model: m === "main" || m === "fast" || m === "smart" ? m : "auto", approval: readLS(LS.approval) === "1" };
+    return { model: m === "main" || m === "fast" || m === "smart" ? m : "auto", approval: false };
   });
   const setSettings = useCallback((s: ChatSettings) => {
-    setSettingsState(s);
+    setSettingsState({ ...s, approval: false });
     writeLS(LS.model, s.model);
-    writeLS(LS.approval, s.approval ? "1" : "0");
   }, []);
   const [panelOpen, setPanelOpen] = useState(() => readLS(LS.panel) !== "0");
   const togglePanel = (v: boolean) => {
