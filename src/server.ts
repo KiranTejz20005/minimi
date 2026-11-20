@@ -211,15 +211,24 @@ ${message}` : undefined,
         },
         {
           onConversation: (id) => emit("conversation", { id }),
-          requestApproval: body.approval
-            ? async (queries) => {
-                const id = newId("apr");
-                emit("approval_request", { id, queries });
-                const ok = await waitForApproval(id, ac.signal);
-                emit("approval_result", { id, approved: ok });
-                return ok;
-              }
-            : undefined,
+          // Always available; PermissionGate only prompts for SENSITIVE_TOOLS (none for read-only search/fetch).
+          requestApproval: async (actions) => {
+            const id = newId("apr");
+            const list = actions.map((a) =>
+              typeof a === "string" ? { tool: "action", label: a } : a,
+            );
+            const queries = list.map((a) => a.label);
+            emit("approval_request", { id, queries, actions: list });
+            const ok = await waitForApproval(id, ac.signal);
+            emit("approval_result", { id, approved: ok });
+            return ok;
+          },
+          onToolStart: (tools) => {
+            emit("tool_start", { tools });
+          },
+          onToolDone: (payload) => {
+            emit("tool_done", payload);
+          },
           onStatus: (text) => {
             emit("status", { text });
           },

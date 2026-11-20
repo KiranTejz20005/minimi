@@ -1,15 +1,20 @@
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
+import type { DatabaseSync } from "node:sqlite";
 import type { SearchProvider } from "../search/types.js";
 import { getConfig } from "../config.js";
 import { defaultMainModel, extractToolCalls } from "../llm/anthropic.js";
 import type { LLM } from "../llm/types.js";
 import type { AssistantBlock, LLMEvent, SystemBlock } from "../llm/types.js";
-import { SEARCH_TOOL } from "./prompts.js";
+import { MemoryStore } from "../memory/store.js";
+import { TurnCitationRegistry } from "../search/tool.js";
 import {
-  TurnCitationRegistry,
-  getSearchRunner,
-  searchCapRemaining,
-} from "../search/tool.js";
+  AGENT_TOOLS,
+  executeToolCall,
+  labelForCall,
+  stepToolBudget,
+  type ToolContext,
+} from "../tools/registry.js";
+import { PermissionGate } from "./permissions.js";
 
 export interface LoopCallbacks {
   onStatus?: (text: string) => void;
@@ -23,9 +28,16 @@ export interface LoopCallbacks {
     results?: { title: string; url: string }[];
     error?: string;
   }) => void;
-  /** When set, web searches wait for the user's approval before running. */
-  requestApproval?: (queries: string[]) => Promise<boolean>;
-  /** Fired after a parallel search batch (one tool step) completes. */
+  onToolStart?: (tools: { id: string; tool: string; label: string }[]) => void;
+  onToolDone?: (payload: {
+    id: string;
+    tool: string;
+    label: string;
+    ms: number;
+    error?: string;
+  }) => void;
+  /** At most once per turn for gated network actions (uncached search / fetch). */
+  requestApproval?: (actions: { tool: string; label: string }[]) => Promise<boolean>;
   onSearchBatch?: (payload: {
     step: number;
     queryCount: number;
@@ -109,17 +121,41 @@ export async function runAgentLoop(opts: {
   callbacks?: LoopCallbacks;
   searchProvider?: SearchProvider;
   model?: string;
+  db?: DatabaseSync;
+  store?: MemoryStore;
   /** If set, step 1 must search: the model is asked to, and if it does not, this query is searched for it. */
   forceSearch?: string | (() => Promise<string>);
 }): Promise<AgentLoopResult> {
   const cfg = getConfig();
   const callbacks = opts.callbacks ?? {};
   const registry = new TurnCitationRegistry();
-  const runner = getSearchRunner(opts.searchProvider);
+  // Sensitive tools only (see permissions.ts). Read-only search/fetch never prompts.
+  const gate = new PermissionGate(!!callbacks.requestApproval);
   let messages = [...opts.messages];
   let searches = 0;
+  let fetches = 0;
   let answer = "";
   let steps = 0;
+
+  const toolCtx = {
+    db: opts.db as DatabaseSync,
+    store: opts.store,
+    searchProvider: opts.searchProvider,
+    registry,
+    signal: opts.signal,
+    get searchesUsed() {
+      return searches;
+    },
+    set searchesUsed(n: number) {
+      searches = n;
+    },
+    get fetchesUsed() {
+      return fetches;
+    },
+    set fetchesUsed(n: number) {
+      fetches = n;
+    },
+  } satisfies ToolContext;
 
   for (let step = 1; step <= cfg.MAX_STEPS; step++) {
     steps = step;
@@ -127,13 +163,13 @@ export async function runAgentLoop(opts: {
     const stream = opts.llm.stream({
       system: opts.system,
       messages,
-      tools: withholdTools ? undefined : [SEARCH_TOOL],
+      tools: withholdTools ? undefined : AGENT_TOOLS,
       forceTool: step === 1 && !!opts.forceSearch && !withholdTools,
+      forceToolName: step === 1 && !!opts.forceSearch && !withholdTools ? "web_search" : undefined,
       model: opts.model ?? defaultMainModel(),
       signal: opts.signal,
     });
 
-    // After the first step the model is almost always writing the final answer, so stream it live.
     const mustSearch = step === 1 && !!opts.forceSearch && !withholdTools;
     let { content, text } = await consumeStream(
       stream,
@@ -143,10 +179,15 @@ export async function runAgentLoop(opts: {
     );
     let calls = extractToolCalls(content);
     if (mustSearch && calls.length === 0) {
-      // The model answered from memory on a time-sensitive question. Search for it instead.
-      const query = typeof opts.forceSearch === "function" ? await opts.forceSearch() : opts.forceSearch;
+      const query =
+        typeof opts.forceSearch === "function" ? await opts.forceSearch() : opts.forceSearch!;
       content = [
-        { type: "tool_use", id: `forced_${Date.now().toString(36)}`, name: "web_search", input: { query } },
+        {
+          type: "tool_use",
+          id: `forced_${Date.now().toString(36)}`,
+          name: "web_search",
+          input: { query },
+        },
       ];
       calls = extractToolCalls(content);
       text = "";
@@ -158,66 +199,95 @@ export async function runAgentLoop(opts: {
       break;
     }
 
-    const perStepCap = cfg.MAX_SEARCHES_PER_STEP;
-    const turnCap = searchCapRemaining(searches);
-    const allowed = Math.min(calls.length, perStepCap, turnCap);
-    const toRun = calls.slice(0, allowed);
-    const dropped = calls.slice(allowed);
+    // Keep every tool_use paired with a tool_result (API contract). When db is missing,
+    // still return an explicit error for memory/claims instead of dropping the call.
+    const needsDb = (name: string) => name === "memory_search" || name === "lookup_claims";
 
-    const queries = toRun.map((c) => queryFromInput(c.input));
-    let approved = true;
-    if (toRun.length > 0 && callbacks.requestApproval) {
-      approved = await callbacks.requestApproval(queries);
+    const budget = stepToolBudget();
+    const toRun = calls.slice(0, budget);
+    const dropped = calls.slice(budget);
+
+    const needing = gate.actionsNeedingPrompt(toRun);
+    if (needing.length > 0 && callbacks.requestApproval) {
+      const ok = await callbacks.requestApproval(needing);
+      gate.record(ok);
     }
-    callbacks.onSearchStart?.(queries, toRun.map((c) => c.id));
+
+    const searchCalls = toRun.filter((c) => c.name === "web_search");
+    const otherCalls = toRun.filter((c) => c.name !== "web_search");
+
+    if (searchCalls.length > 0) {
+      callbacks.onSearchStart?.(
+        searchCalls.map((c) => labelForCall(c.name, c.input)),
+        searchCalls.map((c) => c.id),
+      );
+    }
+    if (otherCalls.length > 0) {
+      callbacks.onToolStart?.(
+        otherCalls.map((c) => ({
+          id: c.id,
+          tool: c.name,
+          label: labelForCall(c.name, c.input),
+        })),
+      );
+    }
 
     const batchT0 = Date.now();
     const results = await Promise.all(
       toRun.map(async (c) => {
-        if (!approved) {
-          const q = queryFromInput(c.input);
-          callbacks.onSearchDone?.({
-            query: q,
-            count: 0,
-            ms: 0,
-            cached: false,
-            callId: c.id,
-            results: [],
-            error: "declined by user",
-          });
+        if (needsDb(c.name) && !opts.db) {
+          const label = labelForCall(c.name, c.input);
+          const err = "memory database unavailable";
+          callbacks.onToolDone?.({ id: c.id, tool: c.name, label, ms: 0, error: err });
           return {
             id: c.id,
-            content: `<search_results query="${escapeAttr(q)}" error="the user declined this web search; answer from what you know and say so"/>`,
-            query: q,
+            content: `<tool_error name="${c.name}" error="${err}"/>`,
+            query: label,
             durationMs: 0,
+            isSearch: false,
           };
         }
-        const res = await runner.run(c.input, registry, opts.signal);
-        callbacks.onSearchDone?.({
-          query: res.query,
-          count: res.count,
-          ms: res.ms,
-          cached: res.cached,
-          callId: c.id,
-          results: (res.sources ?? []).map((s) => ({ title: s.title, url: s.url })),
-          error: res.error,
-        });
-        searches += 1;
+        const allowed = gate.allows(c.name, c.input);
+        const res = await executeToolCall(c, toolCtx, allowed);
+
+        if (c.name === "web_search") {
+          callbacks.onSearchDone?.({
+            query: res.search?.query ?? res.label,
+            count: res.search?.count ?? 0,
+            ms: res.ms,
+            cached: res.search?.cached ?? false,
+            callId: c.id,
+            results: res.search?.results ?? [],
+            error: res.error,
+          });
+        } else {
+          callbacks.onToolDone?.({
+            id: c.id,
+            tool: c.name,
+            label: res.label,
+            ms: res.ms,
+            error: res.error,
+          });
+        }
+
         return {
           id: c.id,
-          content: res.xml,
-          query: res.query,
+          content: res.content,
+          query: res.label,
           durationMs: res.ms,
+          isSearch: c.name === "web_search",
         };
       }),
     );
     const batchDurationMs = Date.now() - batchT0;
-    if (toRun.length > 0) {
+
+    const searchResults = results.filter((r) => r.isSearch);
+    if (searchResults.length > 0) {
       callbacks.onSearchBatch?.({
         step,
-        queryCount: toRun.length,
+        queryCount: searchResults.length,
         batchDurationMs,
-        queries: results.map((r) => ({
+        queries: searchResults.map((r) => ({
           query: r.query,
           durationMs: r.durationMs,
         })),
@@ -227,9 +297,10 @@ export async function runAgentLoop(opts: {
     for (const d of dropped) {
       results.push({
         id: d.id,
-        content: `<search_results query="${escapeAttr(queryFromInput(d.input))}" error="search limit reached for this turn"/>`,
-        query: queryFromInput(d.input),
+        content: `<tool_error name="${d.name}" error="tool limit reached for this step"/>`,
+        query: labelForCall(d.name, d.input),
         durationMs: 0,
+        isSearch: d.name === "web_search",
       });
     }
 
@@ -241,14 +312,16 @@ export async function runAgentLoop(opts: {
   }
 
   if (!answer.trim() && !opts.signal?.aborted) {
-    // The model returned nothing (rate limit, empty completion, reasoning-only output). Ask once more,
-    // with tools withheld, then fall back to an honest message rather than a blank reply.
     const retry = await consumeStream(
       opts.llm.stream({
         system: opts.system,
         messages: [
           ...messages,
-          { role: "user", content: "Answer the user's question now in plain text, using any search results above. Do not call tools." },
+          {
+            role: "user",
+            content:
+              "Answer the user's question now in plain text, using any tool results above. Do not call tools.",
+          },
         ],
         model: opts.model ?? defaultMainModel(),
         signal: opts.signal,
@@ -263,15 +336,4 @@ export async function runAgentLoop(opts: {
   }
 
   return { answer, registry, steps, searches };
-}
-
-function queryFromInput(input: unknown): string {
-  if (input && typeof input === "object" && "query" in input) {
-    return String((input as { query: unknown }).query);
-  }
-  return "";
-}
-
-function escapeAttr(s: string): string {
-  return s.replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
