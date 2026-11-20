@@ -582,8 +582,17 @@ Answer: ${String(t.a).slice(0, 1200)}`,
         /* ignore */
       }
     }
-    const durations = db.prepare(`SELECT MAX(started_ms + duration_ms) AS ms FROM traces GROUP BY turn_id`).all() as Row[];
-    const avgMs = durations.length ? Math.round(durations.reduce((a, r) => a + (r.ms ?? 0), 0) / durations.length) : 0;
+    // started_ms is offset from turn start → max(start+duration) is wall-clock length of that turn.
+    // Exclude demo turns so Analytics matches the Questions tile. Caller: GET /api/stats → AnalyticsView.
+    // User: "analytics is it showing original data... fix... stars how it was calculating"
+    const durations = db
+      .prepare(
+        `SELECT turn_id, MAX(started_ms + duration_ms) AS ms FROM traces
+         WHERE turn_id IN (SELECT id FROM turns WHERE is_demo = 0)
+         GROUP BY turn_id`,
+      )
+      .all() as Row[];
+    const avgMs = durations.length ? Math.round(durations.reduce((a, r) => a + Number(r.ms ?? 0), 0) / durations.length) : 0;
     const perDay = db
       .prepare(`SELECT local_date AS date, COUNT(*) AS turns FROM turns WHERE is_demo = 0 GROUP BY local_date ORDER BY local_date DESC LIMIT 14`)
       .all() as Row[];

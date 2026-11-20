@@ -1,5 +1,6 @@
-import { useId, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import type { AttachmentRef, Integrations, SourceRef } from "../api";
+import { ProgressTracker } from "../ui";
 import type { Toast } from "./types";
 import { Check, Chevron, Close, Copy, Download, FileIcon, Spinner } from "./icons";
 import { copyText, hostOf, plainText, slug } from "./markdown";
@@ -77,6 +78,10 @@ export function RightPanel({ open, onClose, steps, title, answer, sources, uploa
   const [showEarlier, setShowEarlier] = useState(false);
   const earlier = steps.length > 4 ? steps.slice(0, steps.length - 3) : [];
   const visible = steps.length > 4 ? steps.slice(steps.length - 3) : steps;
+  const trackerSteps = useMemo(
+    () => steps.map((s) => ({ id: s.id, label: s.label, done: s.state === "done" })),
+    [steps],
+  );
 
   const copy = async () => {
     const ok = await copyText(answer);
@@ -131,18 +136,21 @@ export function RightPanel({ open, onClose, steps, title, answer, sources, uploa
           {steps.length === 0 ? (
             <p className="rp__empty">Steps appear here as the agent works.</p>
           ) : (
-            <ol className="st__list">
-              {earlier.length > 0 && (
-                <li className="st st--earlier">
-                  <button type="button" className="st__earlier" aria-expanded={showEarlier} onClick={() => setShowEarlier((v) => !v)}>
-                    {earlier.length} earlier step{earlier.length === 1 ? "" : "s"}
-                    <Chevron size={12} />
-                  </button>
-                </li>
-              )}
-              {showEarlier && earlier.map(stepEl)}
-              {visible.map(stepEl)}
-            </ol>
+            <>
+              <ProgressTracker title="" steps={trackerSteps} readOnly showList={false} className="rp__tracker" />
+              <ol className="st__list">
+                {earlier.length > 0 && (
+                  <li className="st st--earlier">
+                    <button type="button" className="st__earlier" aria-expanded={showEarlier} onClick={() => setShowEarlier((v) => !v)}>
+                      {earlier.length} earlier step{earlier.length === 1 ? "" : "s"}
+                      <Chevron size={12} />
+                    </button>
+                  </li>
+                )}
+                {showEarlier && earlier.map(stepEl)}
+                {visible.map(stepEl)}
+              </ol>
+            </>
           )}
         </Section>
 

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, type RunDetail, type RunStep, type RunSummary } from "../api";
-import { approvals, usePendingApprovals } from "../chat/approvals";
-import { IconAlert, IconBell, IconCheck, IconChat, IconExternal, IconGlobe, IconRuns, IconX } from "../shell/icons";
+import { approvals, usePendingApprovals, useRecentApprovals } from "../chat/approvals";
+/* Callers: App Runs route. Recent approvals fix empty panel after decide. User: approved items not visible. */
+import { IconAlert, IconBell, IconCheck, IconChat, IconExternal, IconGlobe, IconRuns } from "../shell/icons";
 import { useToast } from "../shell/toast";
-import { Empty, Spinner } from "../shell/ui";
+import { Empty } from "../shell/ui";
+import { DecisionInbox, Loading, ProgressTracker, Skeleton } from "../ui";
 import { errMsg, fmtMs, relTime, renderMd } from "../shell/util";
 
 type Detail = { stage: string; label: string; sub: string; ms: number; tag?: string; queries?: { query: string; durationMs: number }[] };
@@ -55,6 +57,7 @@ const STATUS: Record<string, { label: string; tone: string }> = {
 export function RunsView({ selectedId, onSelect, onOpenChat }: { selectedId?: string; onSelect: (id: string | undefined) => void; onOpenChat: (conversationId: string) => void }) {
   const toast = useToast();
   const pending = usePendingApprovals();
+  const recentApprovals = useRecentApprovals();
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [detailErr, setDetailErr] = useState<string | null>(null);
@@ -105,15 +108,30 @@ export function RunsView({ selectedId, onSelect, onOpenChat }: { selectedId?: st
   const decide = async (id: string, ok: boolean) => {
     try {
       await api.approve(id, ok);
+      approvals.resolve(id, ok ? "approved" : "declined");
     } catch (e) {
       toast(errMsg(e), "error"); // typically: already timed out
-    } finally {
-      approvals.remove(id);
+      approvals.resolve(id, "expired");
     }
   };
 
   const steps = useMemo(() => (detail ? detail.steps.map(describeStep) : []), [detail]);
   const toolRows = useMemo(() => steps.filter((s) => s.stage === "search").flatMap((s) => s.queries ?? []), [steps]);
+  const decisions = useMemo(
+    () =>
+      pending.map((a) => ({
+        id: a.id,
+        title: a.queries[0] || "Network access",
+        detail: a.queries.join(" · "),
+        primary: "Approve",
+        secondary: "Decline",
+      })),
+    [pending],
+  );
+  const planProgress = useMemo(
+    () => (detail ? detail.steps.map((s, i) => ({ id: `${s.stage}-${i}`, label: describeStep(s).label, done: detail.status === "ok" })) : []),
+    [detail],
+  );
 
   return (
     <div className="view runs-view">
@@ -123,7 +141,11 @@ export function RunsView({ selectedId, onSelect, onOpenChat }: { selectedId?: st
           <span className="count">{runs?.length ?? 0}</span>
         </div>
         {runs === null ? (
-          <div className="loading-row"><Spinner /></div>
+          <Loading label="Loading runs" className="runs-list-loading">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} line height={52} radius={8} />
+            ))}
+          </Loading>
         ) : runs.length === 0 ? (
           <Empty icon={<IconRuns size={22} />} title="No runs yet">Every question you ask becomes a run you can inspect here.</Empty>
         ) : (
@@ -151,7 +173,11 @@ export function RunsView({ selectedId, onSelect, onOpenChat }: { selectedId?: st
         ) : detailErr ? (
           <Empty icon={<IconAlert size={22} />} title="Couldn't load this run">{detailErr}</Empty>
         ) : !detail ? (
-          <div className="loading-row"><Spinner /></div>
+          <Loading label="Loading run" className="loading-row run-detail-loading">
+            <Skeleton line width="45%" height={16} />
+            <Skeleton line width="70%" height={24} style={{ marginTop: 12 }} />
+            <Skeleton height={120} radius={10} style={{ marginTop: 16 }} />
+          </Loading>
         ) : (
           <div className="run-inner">
             <div className="crumbs">
@@ -178,6 +204,8 @@ export function RunsView({ selectedId, onSelect, onOpenChat }: { selectedId?: st
 
             <Card title="Plan" meta={`${steps.length} steps`}>
               {steps.length ? (
+                <>
+                {planProgress.length > 0 && <ProgressTracker title="" steps={planProgress} readOnly showList={false} className="run-plan-progress" />}
                 <ol className="plan">
                   {steps.map((s, i) => (
                     <li key={i}>
@@ -202,6 +230,7 @@ export function RunsView({ selectedId, onSelect, onOpenChat }: { selectedId?: st
                     </li>
                   ))}
                 </ol>
+                </>
               ) : (
                 <p className="muted small">No trace was recorded for this run.</p>
               )}
@@ -245,33 +274,33 @@ export function RunsView({ selectedId, onSelect, onOpenChat }: { selectedId?: st
         </div>
         <div className="side-body" role="tabpanel">
           {tab === "input" ? (
-            pending.length === 0 ? (
+            pending.length === 0 && recentApprovals.length === 0 ? (
               <Empty icon={<IconBell size={20} />} title="Nothing needs you yet">
                 With “Request approval” on in the chat composer, the agent asks here before it searches the web.
               </Empty>
             ) : (
-              <ul className="approvals">
-                {pending.map((a) => (
-                  <li key={a.id} className="approval">
-                    <p className="eyebrow">Web search · waiting for you</p>
-                    <ul>
-                      {a.queries.map((q, i) => (
-                        <li key={i}>
-                          <IconGlobe size={12} /> {q}
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="approval-actions">
-                      <button type="button" className="btn" onClick={() => void decide(a.id, false)}>
-                        <IconX size={13} /> Decline
-                      </button>
-                      <button type="button" className="btn btn-primary" onClick={() => void decide(a.id, true)}>
-                        <IconCheck size={13} /> Approve
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <div className="runs-input-stack">
+                {pending.length > 0 && (
+                  <DecisionInbox
+                    decisions={decisions}
+                    className="runs-decisions"
+                    onDecide={(d, answer) => void decide(d.id, answer === "primary")}
+                  />
+                )}
+                {recentApprovals.length > 0 && (
+                  <ul className="runs-recent" aria-label="Recent decisions">
+                    {recentApprovals.map((a) => (
+                      <li key={a.id} data-status={a.status}>
+                        <span className="runs-recent__status">{a.status === "approved" ? "Approved" : a.status === "declined" ? "Declined" : "Expired"}</span>
+                        <span className="runs-recent__q" title={a.queries.join(" · ")}>
+                          {a.queries[0] || "Web search"}
+                          {a.queries.length > 1 ? ` +${a.queries.length - 1}` : ""}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             )
           ) : !detail ? (
             <Empty title="No run selected" />

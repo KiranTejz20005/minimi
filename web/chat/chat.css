@@ -201,17 +201,6 @@
 .cv .send--stop { background: var(--surface-3); color: var(--text); border: 1px solid var(--border-strong); }
 .cv .icon-btn[data-recording] { color: var(--red); background: var(--red-soft); animation: cv-pulse 1.2s ease-in-out infinite; }
 
-.cv .pm { position: relative; display: inline-flex; }
-.cv .pm__menu { position: absolute; z-index: 20; min-width: 250px; padding: 4px; background: var(--surface-3); border: 1px solid var(--border-strong); border-radius: 11px; box-shadow: var(--shadow-pop); animation: cv-menu 150ms var(--ease-out) both; }
-.cv .pm__menu--up { bottom: calc(100% + 8px); left: 0; transform-origin: bottom left; }
-.cv .pm__menu--right { left: auto; right: 0; transform-origin: bottom right; }
-.cv .pm__item { width: 100%; display: flex; align-items: flex-start; gap: 8px; padding: 7px 8px; border: 0; background: transparent; border-radius: 7px; text-align: left; color: var(--text); font-size: 12.5px; }
-.cv .pm__item:focus-visible, .cv .pm__item:active { background: var(--surface-2); outline: none; }
-@media (hover: hover) and (pointer: fine) { .cv .pm__item:hover { background: var(--surface-2); } }
-.cv .pm__check { width: 16px; flex: none; display: grid; place-items: center; padding-top: 2px; color: var(--accent); }
-.cv .pm__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.cv .pm__text small { color: var(--muted); font-size: 11.5px; }
-
 /* ── Right panel ── */
 .cv .rp { flex: none; width: 300px; overflow: hidden; border-left: 1px solid var(--border); background: var(--bg); transition: width 220ms var(--ease-out), border-color 220ms; }
 .cv .rp:not([data-open]) { width: 0; border-left-color: transparent; }
@@ -229,6 +218,7 @@
 .cv .rp__sec[data-open] > .rp__fold, .cv .ur[data-open] > .rp__fold { grid-template-rows: 1fr; }
 .cv .rp__clip { min-height: 0; overflow: hidden; }
 .cv .rp__empty { margin: 6px 0 0; font-size: 12.5px; color: var(--faint); line-height: 19px; }
+.cv .rp__tracker { margin: 4px 0 10px; max-width: 100%; }
 
 .cv .st__list { list-style: none; margin: 6px 0 0; padding: 0; position: relative; }
 .cv .st { position: relative; display: flex; gap: 10px; padding: 0 0 14px; animation: cv-rise 200ms var(--ease-out) both; }

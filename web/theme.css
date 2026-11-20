@@ -30,7 +30,7 @@
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --shadow-pop: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 14px 32px -10px rgba(0, 0, 0, 0.7);
 
-  /* MessageActions component tokens (read as var(--aui-*, fallback)) */
+  /* Shared UI component tokens (MessageActions, DropdownMenu; read as var(--aui-*, fallback)) */
   --aui-surface: var(--surface);
   --aui-overlay: var(--surface-3);
   --aui-ink: var(--text);
@@ -43,11 +43,14 @@
   --aui-success: var(--green);
   --aui-green: var(--green);
   --aui-blue: var(--accent);
+  --aui-red: var(--red);
+  --aui-amber: var(--amber);
   --aui-placeholder: var(--faint);
   --aui-focus: rgba(77, 163, 255, 0.8);
   --aui-font: var(--font);
   --aui-radius: var(--radius);
   --aui-radius-sm: var(--radius-sm);
+  --aui-radius-lg: var(--radius-lg);
   --aui-ease: var(--ease-out);
   --aui-shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.4);
   --aui-shadow-popover: var(--shadow-pop);
