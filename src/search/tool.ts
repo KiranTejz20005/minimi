@@ -153,6 +153,13 @@ export function parseSearchInput(raw: unknown): SearchInput | null {
   };
 }
 
+/** Used by PermissionGate to skip approval for cache hits. */
+export function isSearchCached(rawInput: unknown): boolean {
+  const parsed = parseSearchInput(rawInput);
+  if (!parsed) return false;
+  return getCached(cacheKey(parsed)) != null;
+}
+
 function timeoutMessage(ms: number): string {
   return `timeout after ${Math.round(ms / 1000)}s`;
 }
