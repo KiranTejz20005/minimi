@@ -10,8 +10,9 @@ import "./home.css";
  * <HomeHero> around the composer and <HomeCards> beneath it while no message has been sent.
  */
 
-const go = (hash: string) => {
-  location.hash = hash;
+/** Accepts "#/files"-style targets; navigates to the clean "/app/files" path through App's router. */
+const go = (target: string) => {
+  window.dispatchEvent(new CustomEvent("minimi:navigate", { detail: `/app/${target.replace(/^#?\/?/, "")}` }));
 };
 const openSearch = () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true }));
 
