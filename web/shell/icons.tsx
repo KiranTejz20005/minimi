@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import type { ProjectColor } from "../api";
 
 type IconProps = { size?: number; className?: string };
 
@@ -28,6 +29,30 @@ export const IconNewChat = make("M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1
 export const IconChat = make("M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-5.4A8 8 0 1 1 21 12Z");
 export const IconRuns = make("M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM10 8.5l5 3.5-5 3.5Z");
 export const IconFolder = make("M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z");
+/** Folder colors (names match the server palette in src/projects.ts). `fill` is the folder body, `tab` the back flap. */
+export const FOLDER_COLORS: Record<ProjectColor, { label: string; fill: string; tab: string }> = {
+  blue: { label: "Blue", fill: "#4da3ff", tab: "#3a86e0" },
+  sky: { label: "Sky", fill: "#5fd0f3", tab: "#3fb4d8" },
+  green: { label: "Green", fill: "#4cc38a", tab: "#38a672" },
+  amber: { label: "Amber", fill: "#f5c542", tab: "#d9a82a" },
+  orange: { label: "Orange", fill: "#f59a4c", tab: "#d97f33" },
+  red: { label: "Red", fill: "#ef6461", tab: "#d14a47" },
+  pink: { label: "Pink", fill: "#f27bb5", tab: "#d4609a" },
+  purple: { label: "Purple", fill: "#a98bf5", tab: "#8c6fda" },
+  gray: { label: "Gray", fill: "#9a9aa6", tab: "#7f7f8b" },
+};
+export const FOLDER_COLOR_ORDER = Object.keys(FOLDER_COLORS) as ProjectColor[];
+
+/** The filled, colored folder used for projects in the sidebar and on the Folders page. */
+export function FolderIcon({ color = "blue", size = 16, className }: { color?: ProjectColor; size?: number; className?: string }): ReactElement {
+  const c = FOLDER_COLORS[color] ?? FOLDER_COLORS.blue;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className={className} aria-hidden="true" focusable="false" data-folder-color={color}>
+      <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h3.9c.6 0 1.2.3 1.6.8l.9 1.2H18.5A2.5 2.5 0 0 1 21 8.5V9H3Z" fill={c.tab} />
+      <path d="M3 8.5A2.5 2.5 0 0 1 5.5 7h13A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5Z" fill={c.fill} />
+    </svg>
+  );
+}
 export const IconChart = make("M4 20V10M10 20V4M16 20v-7M22 20H2");
 export const IconPlug = make("M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0ZM12 17v5");
 export const IconChevronDown = make("m6 9 6 6 6-6");
@@ -55,7 +80,10 @@ export const IconAlert = make(
 export const IconClock = make("M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3 2");
 export const IconKeyboard = make("M2 6h20v12H2ZM6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10");
 export const IconExternal = make("M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5");
-export const IconBell = make("M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9ZM10.3 21a1.9 1.9 0 0 0 3.4 0");
+export const IconSettings = make(
+  "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z",
+);
+export const IconBell =make("M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9ZM10.3 21a1.9 1.9 0 0 0 3.4 0");
 export const IconEdit = make("M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16Z");
 export const IconGlobe = make("M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18");
 export const IconSparkle = make("M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8ZM19 17l.7 1.8L21.5 19.5l-1.8.7L19 22l-.7-1.8-1.8-.7 1.8-.7Z");

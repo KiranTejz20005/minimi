@@ -1,4 +1,4 @@
-﻿import "dotenv/config";
+import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -25,8 +25,8 @@ import {
   discardFailedRegeneration,
 } from "./routes.js";
 import { newId } from "./util/ids.js";
-import { DigestQueue } from "./memory/digest.js";
-import { runTurn, importConversations } from "./agent/run-turn.js";
+import { parseApprovalMode } from "./agent/permissions.js";
+import { runTurn, importConversations, getDigestQueue } from "./agent/run-turn.js";
 import { buildWeb } from "../scripts/build-web-lib.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -34,7 +34,7 @@ const cfg = getConfig();
 setClock(clockFromEnv());
 const db = getDb();
 const store = new MemoryStore(db);
-const digest = new DigestQueue(store);
+const digest = getDigestQueue(db); // same instance runTurn enqueues into, so /api/queue sees real jobs
 digest.retryPending();
 
 buildWeb(root);
@@ -129,7 +129,7 @@ app.get("/health", (c) => {
   );
 });
 
-registerRoutes(app, db);
+registerRoutes(app, db, { digest });
 
 app.get("/api/trace/:turnId", (c) => {
   return c.json({ traces: getTracesForTurn(db, c.req.param("turnId")) });
@@ -171,6 +171,7 @@ app.post("/api/chat", async (c) => {
     tz?: string;
     model?: "auto" | "main" | "fast" | "smart";
     approval?: boolean;
+    approvalMode?: unknown;
     attachmentIds?: string[];
     regenerateTurnId?: string;
   };
@@ -205,6 +206,8 @@ app.post("/api/chat", async (c) => {
 
 ${message}` : undefined,
           model,
+          // Untrusted input: validated, with a safe default. `approval: true` is the pre-modes client's "ask me".
+          approvalMode: parseApprovalMode(body.approvalMode ?? (body.approval === true ? "request" : undefined)),
           tz,
           conversationId: body.conversationId,
           signal: ac.signal,

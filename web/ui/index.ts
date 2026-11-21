@@ -16,3 +16,4 @@ export {
 } from "./IntegrationBeam";
 export { ModelWheel, defaultModels, type ModelWheelProps, type WheelModel } from "./ModelWheel";
 export { SideFolder, type SideFolderProps } from "./SideFolder";
+export { QueueMonitor, type QueueMonitorProps, type QueueJob, type QueueWorker } from "./QueueMonitor";

@@ -1,7 +1,11 @@
 import type { Hono } from "hono";
 import type { DatabaseSync } from "node:sqlite";
 import { getConfig } from "./config.js";
+import type { DigestQueue } from "./memory/digest.js";
+import { readPrefs, sanitizePrefs, writePrefs } from "./preferences.js";
+import { friendlyError, maskKey, parseTestTarget, validateTavilyKey } from "./integrations.js";
 import { getClock } from "./clock.js";
+import { DEFAULT_PROJECT_COLOR, normalizeProjectColor, parseProjectColor } from "./projects.js";
 import { newId } from "./util/ids.js";
 import { createDefaultSearchProvider, searchProviderName } from "./search/free.js";
 import { createLlm } from "./llm/anthropic.js";
@@ -143,8 +147,20 @@ function fileKind(name: string): string {
   return "TXT";
 }
 
-export function registerRoutes(app: Hono, db: DatabaseSync): void {
+export function registerRoutes(app: Hono, db: DatabaseSync, deps: { digest?: DigestQueue } = {}): void {
   loadSettings(db);
+  // Files can be filed straight into a folder (project), independent of any chat. Safe to re-run.
+  try {
+    db.exec(`ALTER TABLE attachments ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`);
+  } catch {
+    /* column already exists */
+  }
+  // Folders carry a color (palette in ./projects.ts). NULL means the default blue. Safe to re-run.
+  try {
+    db.exec(`ALTER TABLE projects ADD COLUMN color TEXT`);
+  } catch {
+    /* column already exists */
+  }
 
   // ── Conversations ──────────────────────────────────────────────────────────
   const listConversationsFull = () =>
@@ -161,15 +177,17 @@ export function registerRoutes(app: Hono, db: DatabaseSync): void {
     ).map((r) => ({ ...r, pinned: Boolean(r.pinned) }));
 
   const listProjects = () =>
-    db
+    (
+      db
       .prepare(
-        `SELECT p.id, p.name, p.created_at,
+        `SELECT p.id, p.name, p.created_at, p.color,
                 (SELECT COUNT(*) FROM conversation_meta cm WHERE cm.project_id = p.id) AS chat_count,
-                (SELECT COUNT(*) FROM attachments a JOIN conversation_meta cm ON cm.conversation_id = a.conversation_id
-                   WHERE cm.project_id = p.id) AS file_count
+                (SELECT COUNT(*) FROM attachments a LEFT JOIN conversation_meta cm ON cm.conversation_id = a.conversation_id
+                   WHERE COALESCE(a.project_id, cm.project_id) = p.id) AS file_count
          FROM projects p ORDER BY p.created_at`,
       )
-      .all() as Row[];
+      .all() as Row[]
+    ).map((r) => ({ ...r, color: normalizeProjectColor(r.color) }));
 
   app.get("/api/conversations", (c) => c.json({ conversations: listConversationsFull(), projects: listProjects() }));
 
@@ -268,18 +286,36 @@ export function registerRoutes(app: Hono, db: DatabaseSync): void {
 
   // ── Projects ───────────────────────────────────────────────────────────────
   app.post("/api/projects", async (c) => {
-    const body = (await c.req.json()) as { name?: string };
+    const body = (await c.req.json().catch(() => ({}))) as { name?: string; color?: unknown };
     const name = body.name?.trim().slice(0, 60);
     if (!name) return c.json({ error: "name required" }, 400);
+    let color = DEFAULT_PROJECT_COLOR;
+    if (body.color !== undefined && body.color !== null) {
+      const parsed = parseProjectColor(body.color);
+      if (!parsed) return c.json({ error: "invalid color" }, 400);
+      color = parsed;
+    }
     const id = newId("prj");
-    db.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?,?,?)`).run(id, name, now());
-    return c.json({ id, name });
+    db.prepare(`INSERT INTO projects (id, name, created_at, color) VALUES (?,?,?,?)`).run(id, name, now(), color);
+    return c.json({ id, name, color });
   });
   app.patch("/api/projects/:id", async (c) => {
-    const body = (await c.req.json()) as { name?: string };
-    const name = body.name?.trim().slice(0, 60);
-    if (!name) return c.json({ error: "name required" }, 400);
-    db.prepare(`UPDATE projects SET name = ? WHERE id = ?`).run(name, c.req.param("id"));
+    const body = (await c.req.json().catch(() => ({}))) as { name?: string; color?: unknown };
+    const id = c.req.param("id");
+    if (!db.prepare(`SELECT 1 FROM projects WHERE id = ?`).get(id)) return c.json({ error: "project not found" }, 404);
+    const hasName = body.name !== undefined;
+    const hasColor = body.color !== undefined;
+    if (!hasName && !hasColor) return c.json({ error: "name or color required" }, 400);
+    if (hasName) {
+      const name = typeof body.name === "string" ? body.name.trim().slice(0, 60) : "";
+      if (!name) return c.json({ error: "name required" }, 400);
+      db.prepare(`UPDATE projects SET name = ? WHERE id = ?`).run(name, id);
+    }
+    if (hasColor) {
+      const color = parseProjectColor(body.color);
+      if (!color) return c.json({ error: "invalid color" }, 400);
+      db.prepare(`UPDATE projects SET color = ? WHERE id = ?`).run(color, id);
+    }
     return c.json({ ok: true });
   });
   app.delete("/api/projects/:id", (c) => {
@@ -316,7 +352,7 @@ export function registerRoutes(app: Hono, db: DatabaseSync): void {
 
   // ── Files (attachments) ────────────────────────────────────────────────────
   app.post("/api/attachments", async (c) => {
-    const body = (await c.req.json()) as { name?: string; mime?: string; content?: string; conversationId?: string };
+    const body = (await c.req.json()) as { name?: string; mime?: string; content?: string; conversationId?: string; projectId?: string };
     const name = body.name?.trim().slice(0, 200);
     if (!name || typeof body.content !== "string") return c.json({ error: "name and content required" }, 400);
     if (body.content.includes("\u0000")) return c.json({ error: "Only text files are supported" }, 415);
@@ -327,8 +363,13 @@ export function registerRoutes(app: Hono, db: DatabaseSync): void {
       if (!db.prepare(`SELECT 1 FROM conversations WHERE id = ?`).get(body.conversationId)) return c.json({ error: "conversation not found" }, 404);
       conversationId = body.conversationId;
     }
+    let projectId: string | null = null;
+    if (body.projectId) {
+      if (!db.prepare(`SELECT 1 FROM projects WHERE id = ?`).get(body.projectId)) return c.json({ error: "folder not found" }, 404);
+      projectId = body.projectId;
+    }
     const id = newId("fil");
-    db.prepare(`INSERT INTO attachments (id, conversation_id, name, mime, size, content, created_at) VALUES (?,?,?,?,?,?,?)`).run(
+    db.prepare(`INSERT INTO attachments (id, conversation_id, name, mime, size, content, created_at, project_id) VALUES (?,?,?,?,?,?,?,?)`).run(
       id,
       conversationId,
       name,
@@ -336,6 +377,7 @@ export function registerRoutes(app: Hono, db: DatabaseSync): void {
       body.content.length,
       body.content,
       now(),
+      projectId,
     );
     return c.json({ id, name, size: body.content.length, kind: fileKind(name) });
   });
@@ -344,11 +386,11 @@ export function registerRoutes(app: Hono, db: DatabaseSync): void {
     const rows = db
       .prepare(
         `SELECT a.id, a.name, a.mime, a.size, a.created_at, a.conversation_id, c.title AS conversation_title,
-                cm.project_id, p.name AS project_name
+                COALESCE(a.project_id, cm.project_id) AS project_id, p.name AS project_name
          FROM attachments a
          LEFT JOIN conversations c ON c.id = a.conversation_id
          LEFT JOIN conversation_meta cm ON cm.conversation_id = a.conversation_id
-         LEFT JOIN projects p ON p.id = cm.project_id
+         LEFT JOIN projects p ON p.id = COALESCE(a.project_id, cm.project_id)
          ORDER BY a.created_at DESC`,
       )
       .all() as Row[];
@@ -358,6 +400,15 @@ export function registerRoutes(app: Hono, db: DatabaseSync): void {
     const r = db.prepare(`SELECT id, name, mime, size, content FROM attachments WHERE id = ?`).get(c.req.param("id")) as Row | undefined;
     if (!r) return c.json({ error: "not found" }, 404);
     return c.json({ ...r, kind: fileKind(r.name) });
+  });
+  // Move a file into a folder, or out of one (projectId: null).
+  app.patch("/api/attachments/:id", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { projectId?: string | null };
+    if (!("projectId" in body)) return c.json({ error: "projectId required" }, 400);
+    if (body.projectId && !db.prepare(`SELECT 1 FROM projects WHERE id = ?`).get(body.projectId)) return c.json({ error: "folder not found" }, 404);
+    const res = db.prepare(`UPDATE attachments SET project_id = ? WHERE id = ?`).run(body.projectId ?? null, c.req.param("id"));
+    if (!res.changes) return c.json({ error: "not found" }, 404);
+    return c.json({ ok: true });
   });
   app.delete("/api/attachments/:id", (c) => {
     db.prepare(`DELETE FROM attachments WHERE id = ?`).run(c.req.param("id"));
@@ -379,44 +430,58 @@ export function registerRoutes(app: Hono, db: DatabaseSync): void {
       search: {
         provider: searchProviderName(),
         hasTavilyKey: Boolean(cfg.TAVILY_API_KEY?.trim()),
+        /** Last 4 chars only; the key itself is never sent to the browser. */
+        keyHint: maskKey(cfg.TAVILY_API_KEY),
         connected: true,
       },
       timezone: cfg.DEFAULT_TZ,
+      security: { accessProtected: Boolean(cfg.ACCESS_TOKEN?.trim()) },
     };
   };
   app.get("/api/integrations", (c) => c.json(integrations()));
 
   app.put("/api/integrations/tavily", async (c) => {
-    const body = (await c.req.json()) as { key?: string };
-    const key = body.key?.trim() ?? "";
+    const body = (await c.req.json().catch(() => null)) as { key?: unknown } | null;
+    if (!body || typeof body !== "object") return c.json({ error: "Send a JSON body like {\"key\": \"...\"}." }, 400);
     const cfg = getConfig();
-    if (!key) {
+    const raw = typeof body.key === "string" ? body.key.trim() : body.key;
+    if (raw === "" || raw === undefined || raw === null) {
       db.prepare(`DELETE FROM settings WHERE key = 'tavily_api_key'`).run();
       cfg.TAVILY_API_KEY = "";
-    } else {
-      db.prepare(`INSERT INTO settings (key, value) VALUES ('tavily_api_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key);
-      cfg.TAVILY_API_KEY = key;
+      return c.json(integrations());
     }
+    const check = validateTavilyKey(raw);
+    if (!check.ok) return c.json({ error: check.error }, 400);
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('tavily_api_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(check.key);
+    cfg.TAVILY_API_KEY = check.key;
     return c.json(integrations());
   });
 
   app.post("/api/integrations/test", async (c) => {
-    const body = (await c.req.json()) as { target?: "llm" | "search" };
+    const body = (await c.req.json().catch(() => null)) as { target?: unknown } | null;
+    const target = parseTestTarget(body?.target);
+    if (!target) return c.json({ ok: false, ms: 0, error: "Unknown target." }, 400);
     const t0 = Date.now();
     try {
-      if (body.target === "llm") {
+      if (target === "llm") {
+        if (!getConfig().hasLlm) return c.json({ ok: false, ms: 0, error: "No API key is configured. Set it in the server .env." });
         const llm = await createLlm();
-        const out = await llm.json<{ ok: boolean }>({
-          model: getConfig().MODEL_FAST,
-          system: "Reply with JSON only.",
-          user: 'Return exactly {"ok": true}',
-        });
-        return c.json({ ok: Boolean(out?.ok), ms: Date.now() - t0 });
+        const out = await Promise.race([
+          llm.json<{ ok: boolean }>({
+            model: getConfig().MODEL_FAST,
+            system: "Reply with JSON only.",
+            user: 'Return exactly {"ok": true}',
+          }),
+          new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 20_000)),
+        ]);
+        const ok = Boolean(out?.ok);
+        return c.json({ ok, ms: Date.now() - t0, detail: ok ? "Model replied" : undefined, error: ok ? undefined : "The model replied, but not in the expected format." });
       }
       const results = await createDefaultSearchProvider().search({ query: "wikipedia" }, AbortSignal.timeout(12_000));
-      return c.json({ ok: results.length > 0, ms: Date.now() - t0, detail: `${results.length} results` });
+      const ok = results.length > 0;
+      return c.json({ ok, ms: Date.now() - t0, detail: `${results.length} results`, error: ok ? undefined : "The search returned no results." });
     } catch (err) {
-      return c.json({ ok: false, ms: Date.now() - t0, error: err instanceof Error ? err.message : "failed" });
+      return c.json({ ok: false, ms: Date.now() - t0, error: friendlyError(err) });
     }
   });
 
@@ -562,6 +627,88 @@ Answer: ${String(t.a).slice(0, 1200)}`,
     });
   });
 
+  // ── Preferences, export and data deletion (Settings view) ───────────────────
+  app.get("/api/preferences", (c) => c.json(readPrefs(db)));
+
+  app.put("/api/preferences", async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "Invalid JSON." }, 400);
+    }
+    const r = sanitizePrefs(body);
+    if (!r.ok) return c.json({ error: r.error }, 400);
+    return c.json(writePrefs(db, r.patch));
+  });
+
+  /** Everything the user created, as one JSON file. */
+  app.get("/api/export", (c) => {
+    const convs = db.prepare(`SELECT id, title, created_at, updated_at FROM conversations WHERE user_id = 'local' ORDER BY created_at`).all() as Row[];
+    const msgs = db.prepare(`SELECT id, conversation_id, role, content, created_at FROM messages ORDER BY created_at`).all() as Row[];
+    const byConv = new Map<string, Row[]>();
+    for (const m of msgs) {
+      const k = String(m.conversation_id);
+      byConv.set(k, [...(byConv.get(k) ?? []), { id: m.id, role: m.role, content: m.content, created_at: m.created_at }]);
+    }
+    const claims = db.prepare(`SELECT turn_id, subject, attribute, value, as_of, source_url FROM claims`).all() as Row[];
+    c.header("Content-Disposition", `attachment; filename="minimi-export.json"`);
+    return c.json({
+      exportedAt: getClock().now().toISOString(),
+      preferences: readPrefs(db),
+      conversations: convs.map((v) => ({ ...v, messages: byConv.get(String(v.id)) ?? [] })),
+      claims,
+    });
+  });
+
+  /** Deletes all chats and what the agent remembered from them. Keeps folders, preferences and API keys. */
+  app.delete("/api/data", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { confirm?: string };
+    if (body.confirm !== "DELETE") return c.json({ error: "Confirmation missing." }, 400);
+    db.exec("BEGIN");
+    try {
+      for (const t of ["feedback", "traces", "claims", "sources", "message_versions", "attachments", "turns", "messages", "conversation_meta", "conversations", "search_cache"]) {
+        db.exec(`DELETE FROM ${t}`);
+      }
+      db.exec("COMMIT");
+    } catch (e) {
+      db.exec("ROLLBACK");
+      return c.json({ error: e instanceof Error ? e.message : "Delete failed." }, 500);
+    }
+    return c.json({ ok: true });
+  });
+
+  // ── Background queue (Analytics view): the memory-digest worker pool ───────
+  app.get("/api/queue", (c) => {
+    const digest = deps.digest;
+    if (!digest) return c.json({ available: false });
+    const snap = digest.snapshot();
+    const label = (id: string) => {
+      const r = db
+        .prepare(`SELECT um.content AS q FROM turns t JOIN messages um ON um.id = t.user_message_id WHERE t.id = ?`)
+        .get(id) as Row | undefined;
+      const q = String(r?.q ?? "").replace(/\s+/g, " ").trim();
+      return q.length > 60 ? q.slice(0, 59) + "…" : q || "Untitled turn";
+    };
+    // Persisted counts, so the totals survive a restart.
+    const counts = db.prepare(`SELECT digest_status AS s, COUNT(*) AS n FROM turns WHERE is_demo = 0 GROUP BY digest_status`).all() as Row[];
+    const n = (s: string) => Number(counts.find((r) => r.s === s)?.n ?? 0);
+    return c.json({
+      available: true,
+      name: "memory-digest",
+      model: snap.model,
+      capacity: snap.concurrency,
+      waiting: snap.waiting.map((j) => ({ id: j.id, label: label(j.id) })),
+      running: snap.running.map((j) => ({ id: j.id, label: label(j.id), startedAt: j.startedAt })),
+      throughputPerMin: snap.throughputPerMin,
+      waitP95Ms: snap.waitP95Ms,
+      history: snap.history,
+      windowMs: snap.windowMs,
+      done: n("done"),
+      failed: n("failed"),
+    });
+  });
+
   // ── Stats (Analytics view) ─────────────────────────────────────────────────
   app.get("/api/stats", (c) => {
     const one = (sql: string) => (db.prepare(sql).get() as Row) ?? {};
@@ -596,6 +743,11 @@ Answer: ${String(t.a).slice(0, 1200)}`,
     const perDay = db
       .prepare(`SELECT local_date AS date, COUNT(*) AS turns FROM turns WHERE is_demo = 0 GROUP BY local_date ORDER BY local_date DESC LIMIT 14`)
       .all() as Row[];
+    // ~34 weeks of per-day questions for the home heatmap (local_date is the user's own calendar day).
+    const since = new Date(Date.now() - 250 * 86_400_000).toISOString().slice(0, 10);
+    const activity = db
+      .prepare(`SELECT local_date AS date, COUNT(*) AS turns FROM turns WHERE is_demo = 0 AND local_date >= ? GROUP BY local_date ORDER BY local_date`)
+      .all(since) as Row[];
     const urls = db.prepare(`SELECT url FROM sources`).all() as Row[];
     const byHost = new Map<string, number>();
     for (const u of urls) {
@@ -606,6 +758,6 @@ Answer: ${String(t.a).slice(0, 1200)}`,
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
       .map(([domain, count]) => ({ domain, count }));
-    return c.json({ totals: { ...totals, searches, avgMs }, perDay: perDay.reverse(), topDomains });
+    return c.json({ totals: { ...totals, searches, avgMs }, perDay: perDay.reverse(), activity, topDomains });
   });
 }

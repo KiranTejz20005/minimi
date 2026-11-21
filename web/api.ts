@@ -9,7 +9,9 @@ export type Conversation = {
   pinned: boolean;
   project_id: string | null;
 };
-export type Project = { id: string; name: string; created_at: string; chat_count: number; file_count: number };
+/** Folder colors; keep in sync with src/projects.ts. */
+export type ProjectColor = "blue" | "sky" | "green" | "amber" | "orange" | "red" | "pink" | "purple" | "gray";
+export type Project = { id: string; name: string; created_at: string; chat_count: number; file_count: number; color: ProjectColor };
 
 export type SourceRef = { n: number; url: string; title: string; published_at: string | null };
 export type SearchRef = { query: string; ms: number };
@@ -38,8 +40,9 @@ export type ConversationDetail = { conversation: Conversation; messages: ChatMes
 
 export type Integrations = {
   llm: { provider: string; connected: boolean; mainModel: string; fastModel: string; smartModel?: string };
-  search: { provider: string; hasTavilyKey: boolean; connected: boolean };
+  search: { provider: string; hasTavilyKey: boolean; keyHint?: string | null; connected: boolean };
   timezone: string;
+  security?: { accessProtected: boolean };
 };
 
 export type RunSummary = {
@@ -72,7 +75,49 @@ export type RunDetail = {
 export type Stats = {
   totals: { conversations: number; turns: number; sources: number; files: number; thumbsUp: number; thumbsDown: number; searches: number; avgMs: number };
   perDay: { date: string; turns: number }[];
+  /** Questions per local day for roughly the last 250 days (home heatmap). */
+  activity?: { date: string; turns: number }[];
   topDomains: { domain: string; count: number }[];
+};
+
+/** GET /api/queue: live state of the background memory-digest worker pool. */
+export type QueueStats =
+  | { available: false }
+  | {
+      available: true;
+      name: string;
+      model: string;
+      capacity: number;
+      waiting: { id: string; label: string }[];
+      running: { id: string; label: string; startedAt: number }[];
+      throughputPerMin: number;
+      waitP95Ms: number;
+      history: number[];
+      windowMs: number;
+      done: number;
+      failed: number;
+    };
+
+/** GET/PUT /api/preferences */
+export type Delivery = "browser" | "off";
+export type Preferences = {
+  displayName: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+  timezone: string;
+  email: string;
+  personalContext: string;
+  workspaceName: string;
+  companyContext: string;
+  customInstructions: string;
+  useInstructions: boolean;
+  webSearch: boolean;
+  memoryRecall: boolean;
+  notifyApprovals: Delivery;
+  notifyFinished: Delivery;
+  notifyFailed: Delivery;
+  notifySound: boolean;
 };
 
 export class ApiError extends Error {
@@ -104,14 +149,16 @@ export const api = {
     req<{ ok: true }>("PATCH", `/api/conversations/${id}`, patch),
   deleteConversation: (id: string) => req<{ ok: true }>("DELETE", `/api/conversations/${id}`),
 
-  createProject: (name: string) => req<{ id: string; name: string }>("POST", "/api/projects", { name }),
+  createProject: (name: string, color?: ProjectColor) => req<{ id: string; name: string; color: ProjectColor }>("POST", "/api/projects", { name, color }),
   renameProject: (id: string, name: string) => req<{ ok: true }>("PATCH", `/api/projects/${id}`, { name }),
+  setProjectColor: (id: string, color: ProjectColor) => req<{ ok: true }>("PATCH", `/api/projects/${id}`, { color }),
   deleteProject: (id: string) => req<{ ok: true }>("DELETE", `/api/projects/${id}`),
 
   searchChats: (q: string) =>
     req<{ results: { id: string; title: string; updated_at: string; snippet: string }[] }>("GET", `/api/search?q=${encodeURIComponent(q)}`),
 
-  uploadFile: (f: { name: string; mime?: string; content: string; conversationId?: string }) =>
+  moveFile: (id: string, projectId: string | null) => req<{ ok: true }>("PATCH", `/api/attachments/${id}`, { projectId }),
+  uploadFile: (f: { name: string; mime?: string; content: string; conversationId?: string; projectId?: string }) =>
     req<AttachmentRef>("POST", "/api/attachments", f),
   listFiles: () => req<{ files: FileRow[] }>("GET", "/api/attachments"),
   getFile: (id: string) => req<AttachmentRef & { content: string }>("GET", `/api/attachments/${id}`),
@@ -119,6 +166,16 @@ export const api = {
 
   integrations: () => req<Integrations>("GET", "/api/integrations"),
   setTavilyKey: (key: string) => req<Integrations>("PUT", "/api/integrations/tavily", { key }),
+
+  preferences: () => req<Preferences>("GET", "/api/preferences"),
+  setPreferences: (patch: Partial<Preferences>) => req<Preferences>("PUT", "/api/preferences", patch),
+  /** Downloads every chat and saved claim as one JSON file. */
+  exportData: async () => {
+    const res = await fetch(API_BASE + "/api/export");
+    if (!res.ok) throw new ApiError("Export failed.", res.status);
+    return res.blob();
+  },
+  deleteAllData: () => req<{ ok: true }>("DELETE", "/api/data", { confirm: "DELETE" }),
   testIntegration: (target: "llm" | "search") =>
     req<{ ok: boolean; ms: number; detail?: string; error?: string }>("POST", "/api/integrations/test", { target }),
 
@@ -130,6 +187,7 @@ export const api = {
   runs: () => req<{ runs: RunSummary[] }>("GET", "/api/runs"),
   run: (id: string) => req<RunDetail>("GET", `/api/runs/${id}`),
   stats: () => req<Stats>("GET", "/api/stats"),
+  queue: () => req<QueueStats>("GET", "/api/queue"),
 
   getClock: () => req<{ now: string }>("GET", "/api/dev/clock"),
   setClock: (iso: string) => req<{ now: string }>("POST", "/api/dev/clock", { iso }),
@@ -143,8 +201,8 @@ export type ChatRequest = {
   conversationId?: string;
   tz?: string;
   model?: "auto" | "main" | "fast" | "smart";
-  /** Confirm uncached web search / page fetch once per turn. */
-  approval?: boolean;
+  /** How the agent asks before acting: request (every network action), auto (unsafe only, default), full (never). */
+  approvalMode?: "request" | "auto" | "full";
   attachmentIds?: string[];
   /** Re-run this (latest) turn; the old answer becomes an earlier version of the new one. */
   regenerateTurnId?: string;
@@ -188,6 +246,15 @@ export type StreamHandlers = {
   onError?: (message: string) => void;
 };
 
+/** Time zone chosen in Settings > Profile (mirrored to localStorage so chat doesn't need a round trip). */
+function storedTz(): string {
+  try {
+    return localStorage.getItem("minimi.tz") || "";
+  } catch {
+    return "";
+  }
+}
+
 /** Resolves when the stream ends. Aborting `signal` ends it quietly (no onError). */
 export async function streamChat(body: ChatRequest, h: StreamHandlers, signal?: AbortSignal): Promise<void> {
   let res: Response;
@@ -195,7 +262,7 @@ export async function streamChat(body: ChatRequest, h: StreamHandlers, signal?: 
     res = await fetch(API_BASE + "/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ...body }),
+      body: JSON.stringify({ tz: storedTz() || Intl.DateTimeFormat().resolvedOptions().timeZone, ...body }),
       signal,
     });
   } catch (e) {

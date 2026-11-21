@@ -179,3 +179,33 @@
 .int-wheel { margin: 0 0 16px; max-height: 220px; overflow: hidden; }
 @media (max-width: 720px) { .hbars li { grid-template-columns: 110px 1fr 28px; } .view-inner { padding: 24px 16px 40px; } }
 @media (prefers-reduced-motion: reduce) { .bar { animation: none; } }
+
+/* ── Files: document cards, folder page ─────────────────────── */
+.file-thumb { height: 120px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.file-page { display: flex; flex-direction: column; gap: 5px; width: 56px; height: 72px; padding: 12px 9px; border-radius: 6px; background: var(--surface-3); border: 1px solid var(--border-strong); }
+.file-page i { display: block; height: 3px; border-radius: 2px; background: var(--border-strong); }
+.file-page i:first-child { width: 55%; background: var(--faint); }
+.file-page i:last-child { width: 70%; }
+.file-card strong { font-size: 13px; }
+.file-card small { font-size: 12px; }
+.file-badge { left: 50%; bottom: 24px; transform: translateX(-12px); }
+.files-crumbs { font-size: 12px; }
+.crumb-link { border: 0; background: none; padding: 0; color: var(--muted); cursor: pointer; font: inherit; }
+@media (hover: hover) { .crumb-link:hover { color: var(--text); } }
+.crumb-back { align-self: flex-start; border: 0; background: none; padding: 0; margin-top: -14px; color: var(--muted); cursor: pointer; font: inherit; font-size: 12px; }
+@media (hover: hover) { .crumb-back:hover { color: var(--text); } }
+.folder-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.folder-head h1 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; min-width: 0; overflow-wrap: anywhere; }
+.select-sm { height: 30px; padding: 0 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 12px; }
+.select-sm:focus-visible { outline: none; border-color: var(--accent); }
+.preview-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.preview-folder { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Folder color: the header icon is a button that opens the palette; cards use the filled folder art */
+.folder-ico--btn { border: 0; background: none; padding: 4px; margin: -4px; border-radius: var(--radius-sm); cursor: pointer; transition: background-color 140ms var(--ease-out), transform 140ms var(--ease-out); }
+.folder-ico--btn:active { transform: scale(0.94); }
+@media (hover: hover) { .folder-ico--btn:hover { background: var(--surface-2); } }
+.folder-ico--btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.folder-ico svg { display: block; transition: transform 200ms var(--ease-out); }
+@media (hover: hover) { .folder-card:hover .folder-ico svg { transform: scale(1.08) rotate(-3deg); } }
+@media (prefers-reduced-motion: reduce) { .folder-ico svg, .folder-ico--btn { transition: none; } .folder-card:hover .folder-ico svg { transform: none; } }

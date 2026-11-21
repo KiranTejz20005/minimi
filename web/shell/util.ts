@@ -77,9 +77,20 @@ export function useStored<T extends string | boolean>(key: string, initial: T): 
       } catch {
         /* storage unavailable */
       }
+      // Other components reading the same key (e.g. Sidebar and Settings) adopt the change.
+      window.dispatchEvent(new CustomEvent("minimi:stored", { detail: { key, value: String(v) } }));
     },
     [key],
   );
+  useEffect(() => {
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<{ key: string; value: string }>).detail;
+      if (d?.key === key) setVal((typeof initial === "boolean" ? d.value === "true" : d.value) as T);
+    };
+    window.addEventListener("minimi:stored", on);
+    return () => window.removeEventListener("minimi:stored", on);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
   return [val, set];
 }
 
@@ -101,7 +112,22 @@ export function useTheme(): [ThemePref, (t: ThemePref) => void] {
     mq.addEventListener("change", fn);
     return () => mq.removeEventListener("change", fn);
   }, [p]);
-  return [p, (t) => setPref(t)];
+  // Every useTheme() instance (App, Settings) stays in sync: a change is broadcast and the others adopt it.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const t = (e as CustomEvent<string>).detail;
+      if (t === "dark" || t === "light" || t === "system") setPref(t);
+    };
+    window.addEventListener("minimi:theme", on);
+    return () => window.removeEventListener("minimi:theme", on);
+  }, [setPref]);
+  return [
+    p,
+    (t) => {
+      setPref(t);
+      window.dispatchEvent(new CustomEvent("minimi:theme", { detail: t }));
+    },
+  ];
 }
 
 /* ── Misc hooks ── */

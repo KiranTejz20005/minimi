@@ -6,6 +6,7 @@ import { getDb } from "../db.js";
 import { createLlm } from "../llm/anthropic.js";
 import type { LLM } from "../llm/types.js";
 import { DigestQueue } from "../memory/digest.js";
+import type { ApprovalMode } from "./permissions.js";
 import {
   type RecallResult,
   recalledTurnIds,
@@ -27,6 +28,7 @@ import {
 import { createTraceWriter } from "../trace.js";
 import { newId } from "../util/ids.js";
 import { buildContext } from "./context.js";
+import { composeUserContext, readPrefs } from "../preferences.js";
 import {
   citedNumbers,
   collectSources,
@@ -73,7 +75,7 @@ const RECALL_CUE =
 
 let digestQueue: DigestQueue | null = null;
 
-function getDigestQueue(db: DatabaseSync): DigestQueue {
+export function getDigestQueue(db: DatabaseSync): DigestQueue {
   if (!digestQueue) digestQueue = new DigestQueue(new MemoryStore(db));
   return digestQueue;
 }
@@ -113,6 +115,8 @@ export interface RunTurnInput {
   model?: string;
   /** What the LLM sees as the user message (e.g. with attachments); `message` is what gets stored/shown. */
   contextMessage?: string;
+  /** Composer approval mode for this turn (see permissions.ts). */
+  approvalMode?: ApprovalMode;
 }
 
 export interface RunTurnResult {
@@ -225,7 +229,7 @@ export async function runTurn(
   });
 
   const shouldRecall =
-    timeRefs.length > 0 || RECALL_CUE.test(input.message);
+    readPrefs(db).memoryRecall && (timeRefs.length > 0 || RECALL_CUE.test(input.message));
   const tRecall0 = clock.now().getTime();
   const recall: RecallResult | null = shouldRecall
     ? retrieve(db, input.message, timeRefs, tz, conversationId)
@@ -248,12 +252,14 @@ export async function runTurn(
   const history = getConversationMessages(db, conversationId).filter(
     (m) => m.id !== userMsg.id,
   );
+  const prefs = readPrefs(db);
   const { system, messages } = buildContext({
     clock,
     tz,
     history,
     userMessage: input.contextMessage ?? input.message,
     memoryXml: memoryXml ?? undefined,
+    customInstructions: composeUserContext(prefs) || undefined,
   });
 
   let loopResult: Awaited<ReturnType<typeof runAgentLoop>>;
@@ -294,7 +300,9 @@ export async function runTurn(
       model: input.model,
       db,
       store: new MemoryStore(db),
-      forceSearch: cfg.FORCE_SEARCH !== "0" && !input.llm && needsFreshData(input.message, !!input.contextMessage, recall?.kind === "hit")
+      disableWebSearch: !prefs.webSearch,
+      approvalMode: input.approvalMode,
+      forceSearch: prefs.webSearch && cfg.FORCE_SEARCH !== "0" && !input.llm && needsFreshData(input.message, !!input.contextMessage, recall?.kind === "hit")
         ? async () => {
             const raw = searchQueryFrom(input.message);
             if (history.length === 0) return raw;

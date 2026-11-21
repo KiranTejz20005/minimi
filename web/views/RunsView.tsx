@@ -276,7 +276,7 @@ export function RunsView({ selectedId, onSelect, onOpenChat }: { selectedId?: st
           {tab === "input" ? (
             pending.length === 0 && recentApprovals.length === 0 ? (
               <Empty icon={<IconBell size={20} />} title="Nothing needs you yet">
-                With “Request approval” on in the chat composer, the agent asks here before it searches the web.
+                When the chat composer is set to “Request approval”, the agent asks here before it searches the web. “Approve for me” only asks about potentially unsafe actions; “Full access” never asks.
               </Empty>
             ) : (
               <div className="runs-input-stack">

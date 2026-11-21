@@ -12,18 +12,31 @@ import { useMediaQuery, useStored, useTheme } from "./shell/util";
 import { AnalyticsView } from "./views/AnalyticsView";
 import { FilesView } from "./views/FilesView";
 import { RunsView } from "./views/RunsView";
+import { setNotifyPrefs } from "./shell/notify";
+import { SettingsView } from "./views/SettingsView";
 
 type Route = { view: View; id?: string };
 
-function parseHash(): Route {
-  const [v, id] = location.hash.replace(/^#\/?/, "").split("/");
+/* Clean path URLs under /app (e.g. /app/settings/privacy, /app/runs/<id>), no "#". The server answers every
+   /app/* with index.html. Old "#/..." links are still understood and rewritten once on load. */
+const BASE = "/app";
+
+function parseSegments(segs: string[]): Route {
+  const [v, id] = segs;
   const rid = id ? decodeURIComponent(id) : undefined;
   if (v === "runs") return { view: "runs", id: rid };
   if (v === "files") return { view: "files" };
   if (v === "analytics") return { view: "analytics" };
+  if (v === "settings") return { view: "settings", id: rid }; // id = section
   return { view: "chat", id: rid };
 }
-const hashOf = (r: Route) => `#/${r.view}${r.id ? `/${encodeURIComponent(r.id)}` : ""}`;
+function parseLocation(): Route {
+  // Legacy hash URL (#/settings) wins when present so old bookmarks keep working.
+  if (location.hash.startsWith("#/")) return parseSegments(location.hash.slice(2).split("/").filter(Boolean));
+  const path = location.pathname.startsWith(BASE) ? location.pathname.slice(BASE.length) : location.pathname;
+  return parseSegments(path.split("/").filter(Boolean));
+}
+const pathOf = (r: Route) => `${BASE}/${r.view}${r.id ? `/${encodeURIComponent(r.id)}` : ""}`;
 
 export function App() {
   return (
@@ -38,11 +51,20 @@ function Shell() {
   const ws = useWorkspace(toast);
   const pending = usePendingApprovals();
   const [theme, setTheme] = useTheme();
-  const [route, setRoute] = useState<Route>(parseHash);
+  const [route, setRoute] = useState<Route>(parseLocation);
   const [collapsedPref, setCollapsedPref] = useStored<boolean>("minimi.sidebar.collapsed", false);
   const narrow = useMediaQuery("(max-width: 899px)");
   const collapsed = narrow || collapsedPref;
   const [userName, setUserName] = useStored<string>("minimi.name", "You");
+  // Settings saves the display name and announces it, so the sidebar row updates without a reload.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const n = (e as CustomEvent<string>).detail;
+      if (typeof n === "string") setUserName(n);
+    };
+    window.addEventListener("minimi:name", on);
+    return () => window.removeEventListener("minimi:name", on);
+  }, [setUserName]);
   const [integrations, setIntegrations] = useState<Integrations | null>(null);
   const [devRoutes, setDevRoutes] = useState(false);
   const [focusToken, setFocusToken] = useState(0);
@@ -51,17 +73,31 @@ function Shell() {
 
   /* ── routing ── */
   const go = useCallback((r: Route, replace = false) => {
-    const h = hashOf(r);
-    if (location.hash !== h) {
-      if (replace) history.replaceState(null, "", h);
-      else location.hash = h;
+    const p = pathOf(r);
+    if (location.pathname !== p || location.hash) {
+      if (replace) history.replaceState(null, "", p);
+      else history.pushState(null, "", p);
     }
     setRoute((cur) => (cur.view === r.view && cur.id === r.id ? cur : r));
   }, []);
   useEffect(() => {
-    const on = () => setRoute(parseHash());
-    window.addEventListener("hashchange", on);
-    return () => window.removeEventListener("hashchange", on);
+    // Rewrite a legacy "#/view" URL to its clean path without adding a history entry.
+    if (location.hash.startsWith("#/")) history.replaceState(null, "", pathOf(parseLocation()));
+    const on = () => setRoute(parseLocation());
+    window.addEventListener("popstate", on);
+    // Other modules navigate with a plain "/app/..." path via this event (see lib navigate()).
+    const nav = (e: Event) => {
+      const to = (e as CustomEvent<string>).detail;
+      if (typeof to === "string") {
+        history.pushState(null, "", to);
+        setRoute(parseLocation());
+      }
+    };
+    window.addEventListener("minimi:navigate", nav);
+    return () => {
+      window.removeEventListener("popstate", on);
+      window.removeEventListener("minimi:navigate", nav);
+    };
   }, []);
 
   const newChat = useCallback(() => {
@@ -74,6 +110,31 @@ function Shell() {
   useEffect(() => {
     api.integrations().then(setIntegrations).catch(() => {});
     api.health().then((h) => setDevRoutes(Boolean(h.devRoutes))).catch(() => {});
+    // Mirror server-side profile/workspace settings into this browser so a fresh browser shows them too.
+    api
+      .preferences()
+      .then((p) => {
+        setNotifyPrefs(p);
+        const put = (k: string, v: string) => {
+          try {
+            localStorage.setItem(k, v);
+          } catch {
+            /* storage unavailable */
+          }
+        };
+        if (p.displayName) {
+          put("minimi.name", p.displayName);
+          setUserName(p.displayName);
+        }
+        if (p.workspaceName) put("minimi.workspace", p.workspaceName);
+        put("minimi.tz", p.timezone);
+        window.dispatchEvent(new CustomEvent("minimi:stored", { detail: { key: "minimi.workspace", value: p.workspaceName } }));
+      })
+      .catch(() => {});
+    const openInt = () => setDialog("integrations");
+    window.addEventListener("minimi:open-integrations", openInt);
+    return () => window.removeEventListener("minimi:open-integrations", openInt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ── shortcuts ── */
@@ -103,7 +164,8 @@ function Shell() {
       ...ws.actions,
       deleteChat: async (id: string) => {
         const ok = await ws.actions.deleteChat(id);
-        if (ok && parseHash().id === id && parseHash().view === "chat") go({ view: "chat" }, true);
+        const cur = parseLocation();
+        if (ok && cur.id === id && cur.view === "chat") go({ view: "chat" }, true);
         return ok;
       },
     }),
@@ -129,7 +191,8 @@ function Shell() {
   if (route.view === "chat") keptChat.current = route.id;
 
   return (
-    <div className="app">
+    <div className="app" data-view={route.view}>
+      {route.view !== "settings" && (
       <Sidebar
         conversations={ws.conversations}
         projects={ws.projects}
@@ -148,16 +211,16 @@ function Shell() {
         onNav={(v) => go(v === "chat" ? { view: "chat", id: keptChat.current } : { view: v })}
         onOpenPalette={() => setDialog("palette")}
         onOpenIntegrations={() => setDialog("integrations")}
+        onOpenSettings={() => go({ view: "settings" })}
         onOpenShortcuts={() => setDialog("shortcuts")}
-        onEditName={() => setDialog("name")}
         onSetTheme={setTheme}
-        onOpenClock={devRoutes ? () => setDialog("clock") : undefined}
         onNewProject={() => {
           if (collapsedPref && !narrow) setCollapsedPref(false);
           setNewProjectSignal((n) => n + 1);
         }}
         actions={actions}
       />
+      )}
 
       <main className="main" id="main">
         {/* ChatView stays mounted so an in-flight answer keeps streaming while you browse other views. */}
@@ -188,6 +251,15 @@ function Shell() {
         {route.view === "analytics" && (
           <div className="pane">
             <AnalyticsView />
+          </div>
+        )}
+        {route.view === "settings" && (
+          <div className="pane">
+            <SettingsView
+              section={route.id}
+              onSection={(s) => go({ view: "settings", id: s }, true)}
+              onBack={() => go({ view: "chat", id: keptChat.current })}
+            />
           </div>
         )}
       </main>

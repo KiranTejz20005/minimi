@@ -14,7 +14,7 @@ import {
   stepToolBudget,
   type ToolContext,
 } from "../tools/registry.js";
-import { PermissionGate } from "./permissions.js";
+import { PermissionGate, type ApprovalMode } from "./permissions.js";
 
 export interface LoopCallbacks {
   onStatus?: (text: string) => void;
@@ -125,12 +125,16 @@ export async function runAgentLoop(opts: {
   store?: MemoryStore;
   /** If set, step 1 must search: the model is asked to, and if it does not, this query is searched for it. */
   forceSearch?: string | (() => Promise<string>);
+  /** Settings > Preferences > Web search off: the model is not offered web_search. */
+  disableWebSearch?: boolean;
+  /** Composer approval mode (default "auto"). Without a requestApproval callback nothing can be asked, so it is moot. */
+  approvalMode?: ApprovalMode;
 }): Promise<AgentLoopResult> {
   const cfg = getConfig();
   const callbacks = opts.callbacks ?? {};
   const registry = new TurnCitationRegistry();
-  // Sensitive tools only (see permissions.ts). Read-only search/fetch never prompts.
-  const gate = new PermissionGate(!!callbacks.requestApproval);
+  // Sensitive tools always gate; read-only search/fetch only when the user opted in (see permissions.ts).
+  const gate = new PermissionGate(!!callbacks.requestApproval, callbacks.requestApproval ? (opts.approvalMode ?? "auto") : "full");
   let messages = [...opts.messages];
   let searches = 0;
   let fetches = 0;
@@ -163,7 +167,7 @@ export async function runAgentLoop(opts: {
     const stream = opts.llm.stream({
       system: opts.system,
       messages,
-      tools: withholdTools ? undefined : AGENT_TOOLS,
+      tools: withholdTools ? undefined : opts.disableWebSearch ? AGENT_TOOLS.filter((t) => t.name !== "web_search") : AGENT_TOOLS,
       forceTool: step === 1 && !!opts.forceSearch && !withholdTools,
       forceToolName: step === 1 && !!opts.forceSearch && !withholdTools ? "web_search" : undefined,
       model: opts.model ?? defaultMainModel(),

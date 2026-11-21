@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, type Integrations } from "../api";
 import { IconCheck, IconX } from "./icons";
 import { useToast } from "./toast";
@@ -71,6 +71,34 @@ function shortModel(id: string) {
   return leaf.length > 36 ? `${leaf.slice(0, 34)}…` : leaf;
 }
 
+/** Monogram tile for providers we list but have not built yet. */
+function Mono({ label, color }: { label: string; color: string }) {
+  return (
+    <span className="int-logo int-logo--mono" style={{ background: `${color}26`, color }} aria-hidden="true">
+      {label}
+    </span>
+  );
+}
+
+type Group = "Popular" | "Google" | "Communication";
+type Entry = { id: string; name: string; blurb: string; group: Group; live?: "llm" | "search"; mono?: [string, string] };
+
+/** Only `live` entries are real. Everything else is honestly marked "Coming soon". */
+const CATALOG: Entry[] = [
+  { id: "llm", name: "LLM provider", blurb: "Powers answers, tool use and memory digests.", group: "Popular", live: "llm" },
+  { id: "search", name: "Tavily", blurb: "Fresh, cited web results for every search.", group: "Popular", live: "search" },
+  { id: "slack", name: "Slack", blurb: "Get alerts in your channels and act on them without leaving chat.", group: "Popular", mono: ["S", "#e01e5a"] },
+  { id: "notion", name: "Notion", blurb: "Turn records into pages and keep project docs in sync.", group: "Popular", mono: ["N", "#a3a3ac"] },
+  { id: "linear", name: "Linear", blurb: "Create issues from customer feedback and track them.", group: "Popular", mono: ["L", "#5e6ad2"] },
+  { id: "github", name: "GitHub", blurb: "Link pull requests and see deploy status next to every task.", group: "Popular", mono: ["G", "#a3a3ac"] },
+  { id: "gdrive", name: "Google Drive", blurb: "Pick files from Drive and preview them without downloading.", group: "Google", mono: ["D", "#34a853"] },
+  { id: "gcal", name: "Google Calendar", blurb: "Upcoming meetings with every contact in one timeline.", group: "Google", mono: ["C", "#4285f4"] },
+  { id: "zoom", name: "Zoom", blurb: "Start meetings from any record and save the recording link.", group: "Communication", mono: ["Z", "#2d8cff"] },
+  { id: "discord", name: "Discord", blurb: "Post updates to community channels when something ships.", group: "Communication", mono: ["D", "#5865f2"] },
+];
+
+const GROUPS: Group[] = ["Popular", "Google", "Communication"];
+
 export function IntegrationsModal({
   open,
   onClose,
@@ -86,12 +114,24 @@ export function IntegrationsModal({
   const [key, setKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [tests, setTests] = useState<Record<string, TestState>>({});
+  const [tab, setTab] = useState<"all" | "connected" | "available">("all");
+  const [q, setQ] = useState("");
+  const [detail, setDetail] = useState<"llm" | "search" | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+
+  const load = () => {
+    setLoadErr(null);
+    api.integrations().then(onUpdated).catch((e) => setLoadErr(errMsg(e)));
+  };
 
   useEffect(() => {
     if (open) {
       setKey("");
       setTests({});
-      api.integrations().then(onUpdated).catch(() => {});
+      setDetail(null);
+      setQ("");
+      setTab("all");
+      load();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -113,7 +153,7 @@ export function IntegrationsModal({
       onUpdated(next);
       setKey("");
       setTests((t) => ({ ...t, search: undefined }));
-      toast(value ? "Tavily key saved — web search now uses Tavily" : "Tavily key removed — using keyless web search", "success");
+      toast(value ? "Tavily key saved. Web search now uses Tavily." : "Tavily key removed. Using keyless web search.", "success");
     } catch (e) {
       toast(`Couldn't save key: ${errMsg(e)}`, "error");
     } finally {
@@ -123,8 +163,16 @@ export function IntegrationsModal({
 
   const llm = integrations?.llm;
   const search = integrations?.search;
-  const llmLogo = llm ? providerLogo("llm", llm.provider) : null;
-  const searchLogo = search ? providerLogo("search", search.provider) : null;
+
+  const entries = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return CATALOG.filter((e) => {
+      const connected = e.live === "llm" ? !!llm?.connected : e.live === "search" ? !!search?.hasTavilyKey : false;
+      if (tab === "connected" && !connected) return false;
+      if (tab === "available" && connected) return false;
+      return !needle || `${e.name} ${e.blurb} ${e.group}`.toLowerCase().includes(needle);
+    });
+  }, [q, tab, llm?.connected, search?.hasTavilyKey]);
 
   const result = (t: TestState) =>
     t && !t.busy ? (
@@ -132,125 +180,182 @@ export function IntegrationsModal({
         {t.ok ? <IconCheck size={14} /> : <IconX size={14} />}
         <span>
           {t.text}
-          {t.ms != null && ` · ${fmtMs(t.ms)}`}
+          {t.ms != null && t.ms > 0 && ` · ${fmtMs(t.ms)}`}
         </span>
       </p>
     ) : null;
 
+  const logoFor = (e: Entry) => {
+    if (e.live === "llm" && llm) {
+      const l = providerLogo("llm", llm.provider);
+      return <span className="int-logo" data-tone={l.tone}>{l.node}</span>;
+    }
+    if (e.live === "search") {
+      const l = providerLogo("search", "tavily");
+      return <span className="int-logo" data-tone={l.tone}>{l.node}</span>;
+    }
+    return <Mono label={e.mono![0]} color={e.mono![1]} />;
+  };
+
+  const renderDetail = () => {
+    if (detail === "llm" && llm) {
+      const logo = providerLogo("llm", llm.provider);
+      return (
+        <section className="int-card" aria-labelledby="int-llm">
+          <header className="int-card__head">
+            <span className="int-logo" data-tone={logo.tone}>{logo.node}</span>
+            <div className="int-title">
+              <h3 id="int-llm">{llm.provider}</h3>
+              <p>Language model</p>
+            </div>
+            <span className="status" data-ok={llm.connected}>
+              <i /> {llm.connected ? "Connected" : "No key"}
+            </span>
+          </header>
+          <ul className="int-models">
+            <li><span className="int-models__role">Main</span><code title={llm.mainModel}>{shortModel(llm.mainModel)}</code></li>
+            <li><span className="int-models__role">Fast</span><code title={llm.fastModel}>{shortModel(llm.fastModel)}</code></li>
+            {llm.smartModel && <li><span className="int-models__role">Smart</span><code title={llm.smartModel}>{shortModel(llm.smartModel)}</code></li>}
+          </ul>
+          <footer className="int-card__foot">
+            <p className="int-note">
+              {llm.connected ? "The API key and models are set in the server " : "No key found. Add one to the server "}
+              <code>.env</code> (<code>NVIDIA_API_KEY</code> or <code>ANTHROPIC_API_KEY</code>) and restart.
+            </p>
+            <div className="int-actions">
+              <button type="button" className="btn" onClick={() => test("llm")} disabled={tests.llm?.busy || !llm.connected}>
+                {tests.llm?.busy ? "Testing…" : "Test connection"}
+              </button>
+              {result(tests.llm)}
+            </div>
+          </footer>
+        </section>
+      );
+    }
+    if (detail === "search" && search) {
+      const logo = providerLogo("search", "tavily");
+      return (
+        <section className="int-card" aria-labelledby="int-search">
+          <header className="int-card__head">
+            <span className="int-logo" data-tone={logo.tone}>{logo.node}</span>
+            <div className="int-title">
+              <h3 id="int-search">Tavily</h3>
+              <p>Web search · currently using {search.provider}</p>
+            </div>
+            <span className="status" data-ok={search.hasTavilyKey}>
+              <i /> {search.hasTavilyKey ? "Connected" : "Not connected"}
+            </span>
+          </header>
+          <p className="int-note int-note--flush">
+            {search.hasTavilyKey
+              ? `Using your saved key (${search.keyHint ?? "••••"}). It is stored on the server and never sent back to the browser.`
+              : "No key yet. Search falls back to keyless results. Add a Tavily key for fresher, better-cited results."}
+          </p>
+          <form
+            className="int-keyrow"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (key.trim() && !saving) void saveKey(key.trim());
+            }}
+          >
+            <label className="int-keyrow__lab" htmlFor="tavily-key">API key</label>
+            <div className="int-keyrow__fields">
+              <input
+                id="tavily-key"
+                name="tavily-key"
+                type="password"
+                className="input int-keyrow__input"
+                placeholder={search.hasTavilyKey ? "Paste a new key to replace" : "tvly-…"}
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={256}
+                data-autofocus
+              />
+              <button type="submit" className="btn btn-primary" disabled={!key.trim() || saving}>
+                {saving ? "Saving…" : "Save"}
+              </button>
+              {search.hasTavilyKey && (
+                <button type="button" className="btn" disabled={saving} onClick={() => void saveKey("")}>Remove</button>
+              )}
+            </div>
+          </form>
+          <footer className="int-card__foot">
+            <div className="int-actions">
+              <button type="button" className="btn" onClick={() => test("search")} disabled={tests.search?.busy}>
+                {tests.search?.busy ? "Testing…" : "Test search"}
+              </button>
+              {result(tests.search)}
+            </div>
+          </footer>
+        </section>
+      );
+    }
+    return null;
+  };
+
   return (
-    <Dialog open={open} onClose={onClose} title="Integrations" width={520}>
-      {!integrations ? (
-        <div className="dialog-loading">
-          <Spinner />
+    <Dialog open={open} onClose={onClose} title="Integrations" width={760}>
+      {loadErr && !integrations ? (
+        <div className="int-error" role="alert">
+          <p>Couldn't load integrations: {loadErr}</p>
+          <button type="button" className="btn" onClick={load}>Retry</button>
+        </div>
+      ) : !integrations ? (
+        <div className="dialog-loading"><Spinner /></div>
+      ) : detail ? (
+        <div className="int-list">
+          <button type="button" className="btn btn-ghost int-back" onClick={() => setDetail(null)}>← All integrations</button>
+          {renderDetail()}
+          <p className="int-foot">Time zone: {integrations.timezone}</p>
         </div>
       ) : (
-        <div className="int-list">
-          <section className="int-card" aria-labelledby="int-llm">
-            <header className="int-card__head">
-              <span className="int-logo" data-tone={llmLogo!.tone}>
-                {llmLogo!.node}
-              </span>
-              <div className="int-title">
-                <h3 id="int-llm">{llm!.provider}</h3>
-                <p>Language model</p>
-              </div>
-              <span className="status" data-ok={llm!.connected}>
-                <i /> {llm!.connected ? "Connected" : "No key"}
-              </span>
-            </header>
-
-            <ul className="int-models">
-              <li>
-                <span className="int-models__role">Main</span>
-                <code title={llm!.mainModel}>{shortModel(llm!.mainModel)}</code>
-              </li>
-              <li>
-                <span className="int-models__role">Fast</span>
-                <code title={llm!.fastModel}>{shortModel(llm!.fastModel)}</code>
-              </li>
-              {llm!.smartModel && (
-                <li>
-                  <span className="int-models__role">Smart</span>
-                  <code title={llm!.smartModel}>{shortModel(llm!.smartModel)}</code>
-                </li>
-              )}
-            </ul>
-
-            <footer className="int-card__foot">
-              <p className="int-note">API key and models are set in the server <code>.env</code>.</p>
-              <div className="int-actions">
-                <button type="button" className="btn" onClick={() => test("llm")} disabled={tests.llm?.busy}>
-                  {tests.llm?.busy ? "Testing…" : "Test connection"}
+        <div className="int-browse">
+          <p className="int-lede">Connect the tools your team already uses and work with them right in the chat.</p>
+          <div className="int-toolbar">
+            <div className="seg" role="tablist" aria-label="Filter integrations">
+              {(["all", "connected", "available"] as const).map((t) => (
+                <button key={t} type="button" role="tab" aria-selected={tab === t} aria-pressed={tab === t} onClick={() => setTab(t)}>
+                  {t[0]!.toUpperCase() + t.slice(1)}
                 </button>
-                {result(tests.llm)}
-              </div>
-            </footer>
-          </section>
+              ))}
+            </div>
+            <input type="search" className="input int-search" placeholder="Search integrations…" aria-label="Search integrations" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
 
-          <section className="int-card" aria-labelledby="int-search">
-            <header className="int-card__head">
-              <span className="int-logo" data-tone={searchLogo!.tone}>
-                {searchLogo!.node}
-              </span>
-              <div className="int-title">
-                <h3 id="int-search">{search!.provider}</h3>
-                <p>Web search</p>
-              </div>
-              <span className="status" data-ok={search!.connected}>
-                <i /> {search!.connected ? "Ready" : "Unavailable"}
-              </span>
-            </header>
-
-            <p className="int-note int-note--flush">
-              {search!.hasTavilyKey
-                ? "Using your saved Tavily key for fresher results."
-                : "No key yet — falling back to keyless search. Add a Tavily key for better results."}
-            </p>
-
-            <form
-              className="int-keyrow"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (key.trim()) void saveKey(key.trim());
-              }}
-            >
-              <label className="int-keyrow__lab" htmlFor="tavily-key">
-                API key
-              </label>
-              <div className="int-keyrow__fields">
-                <input
-                  id="tavily-key"
-                  name="tavily-key"
-                  type="password"
-                  className="input int-keyrow__input"
-                  placeholder={search!.hasTavilyKey ? "••••••••••••  paste to replace" : "tvly-…"}
-                  value={key}
-                  onChange={(e) => setKey(e.target.value)}
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                <button type="submit" className="btn btn-primary" disabled={!key.trim() || saving}>
-                  {saving ? "Saving…" : "Save"}
-                </button>
-                {search!.hasTavilyKey && (
-                  <button type="button" className="btn" disabled={saving} onClick={() => void saveKey("")}>
-                    Remove
-                  </button>
-                )}
-              </div>
-            </form>
-
-            <footer className="int-card__foot">
-              <div className="int-actions">
-                <button type="button" className="btn" onClick={() => test("search")} disabled={tests.search?.busy}>
-                  {tests.search?.busy ? "Testing…" : "Test search"}
-                </button>
-                {result(tests.search)}
-              </div>
-            </footer>
-          </section>
-
-          <p className="int-foot">Time zone: {integrations.timezone}</p>
+          {entries.length === 0 && <p className="int-empty">No integrations match.</p>}
+          {GROUPS.map((g) => {
+            const rows = entries.filter((e) => e.group === g);
+            if (!rows.length) return null;
+            return (
+              <section key={g} className="int-group" aria-label={g}>
+                <h3 className="int-group__title">{g}</h3>
+                <ul className="int-rows">
+                  {rows.map((e) => {
+                    const connected = e.live === "llm" ? !!llm?.connected : e.live === "search" ? !!search?.hasTavilyKey : false;
+                    const name = e.live === "llm" && llm ? llm.provider : e.name;
+                    return (
+                      <li key={e.id} className="int-row" data-soon={!e.live || undefined}>
+                        {logoFor(e)}
+                        <div className="int-row__text">
+                          <strong>{name}</strong>
+                          <span>{e.blurb}</span>
+                        </div>
+                        {e.live ? (
+                          <button type="button" className="int-row__btn" data-on={connected || undefined} aria-label={`${connected ? "Manage" : "Set up"} ${name}`} onClick={() => setDetail(e.live!)}>
+                            {connected ? <IconCheck size={14} /> : <span aria-hidden="true">+</span>}
+                          </button>
+                        ) : (
+                          <span className="int-row__soon">Coming soon</span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            );
+          })}
         </div>
       )}
     </Dialog>

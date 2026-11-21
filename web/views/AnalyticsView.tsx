@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type Stats } from "../api";
+import { api, type QueueStats, type Stats } from "../api";
 import { IconChart } from "../shell/icons";
 import { useToast } from "../shell/toast";
 import { Empty } from "../shell/ui";
-import { ChangeSummary, type MetricChange, Loading, Rating, Skeleton } from "../ui";
+import { ChangeSummary, type MetricChange, Loading, QueueMonitor, Rating, Skeleton } from "../ui";
 import { errMsg, fmtMs } from "../shell/util";
 /* App.tsx Analytics route. Rating is AffectUI read-only stars for aggregate feedback; ChangeSummary already covers metrics text. Schema: Stats.totals thumbs. User: "use components in suitable places and use them to improve user interaction" */
 
@@ -112,6 +112,19 @@ export function AnalyticsView() {
 
   const summaryChanges = useMemo(() => (stats ? analyticsChanges(stats) : []), [stats]);
 
+  // Background memory-digest queue: poll while this page is open (it is quiet most of the time).
+  const [queue, setQueue] = useState<QueueStats | null>(null);
+  useEffect(() => {
+    let live = true;
+    const load = () => api.queue().then((q) => live && setQueue(q)).catch(() => {});
+    void load();
+    const t = window.setInterval(load, 3000);
+    return () => {
+      live = false;
+      window.clearInterval(t);
+    };
+  }, []);
+
   if (!stats)
     return (
       <div className="view">
@@ -159,6 +172,33 @@ export function AnalyticsView() {
         )}
 
         {!empty && <ChangeSummary title="What's changed" period="Recent activity" changes={summaryChanges} className="analytics-summary" />}
+
+        {queue?.available && (
+          <QueueMonitor
+            title="Memory queue"
+            name={`${queue.name} · ${queue.model.split("/").pop()}`}
+            status={
+              queue.waiting.length >= queue.capacity * 3
+                ? { label: "Backed up", tone: "amber" }
+                : queue.running.length || queue.waiting.length
+                  ? { label: "Working", tone: "blue" }
+                  : { label: "Idle", tone: "green" }
+            }
+            waiting={queue.waiting}
+            workers={Array.from({ length: queue.capacity }, (_, i) => {
+              const job = queue.running[i];
+              return { id: `w${i}`, name: `Worker ${i + 1}`, job: job ? { label: job.label } : null };
+            })}
+            capacity={queue.capacity}
+            done={queue.done}
+            failed={queue.failed}
+            throughputPerMin={queue.throughputPerMin}
+            waitP95Ms={queue.waitP95Ms}
+            history={queue.history}
+            historyStart={`${Math.round(queue.windowMs / 60000)}m ago`}
+            emptyQueue="Every answer is already saved to memory"
+          />
+        )}
 
         {empty ? (
           <Empty icon={<IconChart size={22} />} title="No data yet">Ask a question in Chat and your usage shows up here.</Empty>

@@ -105,6 +105,12 @@ body {
 }
 button { font: inherit; color: inherit; cursor: pointer; }
 :where(button, input, textarea, select) { font-family: inherit; }
+/* Native <select> popups are painted by the browser from the <option> elements, not from the select's own
+   background. Without this the list stays browser-white while text inherits the app's light text colour
+   (white on white). Every select in the app gets a themed popup from here. */
+select option, select optgroup { background-color: var(--surface-2); color: var(--text); }
+select option:disabled { color: var(--muted); }
+select option:checked { background-color: var(--surface-3); color: var(--text); }
 ::selection { background: var(--accent-soft); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) {

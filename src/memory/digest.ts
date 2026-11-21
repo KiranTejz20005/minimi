@@ -21,12 +21,33 @@ const schema = z.object({
 type DigestJob = {
   turnId: string;
   asOf: string;
+  enqueuedAt: number;
 };
+
+export type DigestSnapshot = {
+  concurrency: number;
+  model: string;
+  waiting: { id: string }[];
+  running: { id: string; startedAt: number }[];
+  /** Completions in the last 60s. */
+  throughputPerMin: number;
+  /** 95th percentile of enqueue-to-start wait over recent jobs, ms. */
+  waitP95Ms: number;
+  /** Queue depth over the last `windowMs`, bucketed oldest to newest. */
+  history: number[];
+  windowMs: number;
+};
+
+const WINDOW_MS = 10 * 60_000;
+const BUCKETS = 48;
 
 export class DigestQueue {
   private readonly queue: DigestJob[] = [];
   private active = 0;
   private readonly concurrency = 2;
+  private readonly running = new Map<string, number>();
+  private readonly finished: { at: number; waitMs: number }[] = [];
+  private readonly depthLog: { t: number; depth: number }[] = [];
   private client: LLM | null;
   private ready: Promise<void> = Promise.resolve();
   private readonly model: string;
@@ -49,8 +70,48 @@ export class DigestQueue {
   }
 
   enqueue(turnId: string, asOf: string): void {
-    this.queue.push({ turnId, asOf });
+    this.queue.push({ turnId, asOf, enqueuedAt: Date.now() });
+    this.logDepth();
     void this.pump();
+  }
+
+  private logDepth(): void {
+    const now = Date.now();
+    this.depthLog.push({ t: now, depth: this.queue.length });
+    while (this.depthLog.length > 2 && this.depthLog[1]!.t < now - WINDOW_MS) this.depthLog.shift();
+  }
+
+  /** Live state for the Analytics queue monitor. */
+  snapshot(): DigestSnapshot {
+    const now = Date.now();
+    const waits = this.finished.filter((f) => f.at > now - WINDOW_MS).map((f) => f.waitMs).sort((a, b) => a - b);
+    const p95 = waits.length ? waits[Math.min(waits.length - 1, Math.ceil(waits.length * 0.95) - 1)]! : 0;
+    const bucketMs = WINDOW_MS / BUCKETS;
+    const start = now - WINDOW_MS;
+    const history: number[] = [];
+    let carried = this.depthLog.length ? this.depthLog[0]!.depth : 0;
+    let i = 0;
+    for (let b = 0; b < BUCKETS; b++) {
+      const end = start + (b + 1) * bucketMs;
+      let peak = carried;
+      while (i < this.depthLog.length && this.depthLog[i]!.t <= end) {
+        carried = this.depthLog[i]!.depth;
+        peak = Math.max(peak, carried);
+        i++;
+      }
+      history.push(peak);
+    }
+    history[BUCKETS - 1] = this.queue.length;
+    return {
+      concurrency: this.concurrency,
+      model: this.model,
+      waiting: this.queue.map((j) => ({ id: j.turnId })),
+      running: [...this.running].map(([id, startedAt]) => ({ id, startedAt })),
+      throughputPerMin: this.finished.filter((f) => f.at > now - 60_000).length,
+      waitP95Ms: p95,
+      history,
+      windowMs: WINDOW_MS,
+    };
   }
 
   retryPending(): void {
@@ -63,7 +124,13 @@ export class DigestQueue {
     while (this.active < this.concurrency && this.queue.length) {
       const job = this.queue.shift()!;
       this.active += 1;
+      const startedAt = Date.now();
+      this.running.set(job.turnId, startedAt);
+      this.logDepth();
       void this.run(job).finally(() => {
+        this.finished.push({ at: Date.now(), waitMs: startedAt - job.enqueuedAt });
+        if (this.finished.length > 200) this.finished.shift();
+        this.running.delete(job.turnId);
         this.active -= 1;
         void this.pump();
       });
