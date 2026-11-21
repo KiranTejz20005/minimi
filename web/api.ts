@@ -9,7 +9,9 @@ export type Conversation = {
   pinned: boolean;
   project_id: string | null;
 };
-export type Project = { id: string; name: string; created_at: string; chat_count: number; file_count: number };
+/** Folder colors; keep in sync with src/projects.ts. */
+export type ProjectColor = "blue" | "sky" | "green" | "amber" | "orange" | "red" | "pink" | "purple" | "gray";
+export type Project = { id: string; name: string; created_at: string; chat_count: number; file_count: number; color: ProjectColor };
 
 export type SourceRef = { n: number; url: string; title: string; published_at: string | null };
 export type SearchRef = { query: string; ms: number };
@@ -40,6 +42,7 @@ export type Integrations = {
   llm: { provider: string; connected: boolean; mainModel: string; fastModel: string; smartModel?: string };
   search: { provider: string; hasTavilyKey: boolean; keyHint?: string | null; connected: boolean };
   timezone: string;
+  security?: { accessProtected: boolean };
 };
 
 export type RunSummary = {
@@ -96,7 +99,26 @@ export type QueueStats =
     };
 
 /** GET/PUT /api/preferences */
-export type Preferences = { displayName: string; customInstructions: string; useInstructions: boolean; webSearch: boolean };
+export type Delivery = "browser" | "off";
+export type Preferences = {
+  displayName: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+  timezone: string;
+  email: string;
+  personalContext: string;
+  workspaceName: string;
+  companyContext: string;
+  customInstructions: string;
+  useInstructions: boolean;
+  webSearch: boolean;
+  memoryRecall: boolean;
+  notifyApprovals: Delivery;
+  notifyFinished: Delivery;
+  notifyFailed: Delivery;
+  notifySound: boolean;
+};
 
 export class ApiError extends Error {
   constructor(message: string, public status: number) {
@@ -127,8 +149,9 @@ export const api = {
     req<{ ok: true }>("PATCH", `/api/conversations/${id}`, patch),
   deleteConversation: (id: string) => req<{ ok: true }>("DELETE", `/api/conversations/${id}`),
 
-  createProject: (name: string) => req<{ id: string; name: string }>("POST", "/api/projects", { name }),
+  createProject: (name: string, color?: ProjectColor) => req<{ id: string; name: string; color: ProjectColor }>("POST", "/api/projects", { name, color }),
   renameProject: (id: string, name: string) => req<{ ok: true }>("PATCH", `/api/projects/${id}`, { name }),
+  setProjectColor: (id: string, color: ProjectColor) => req<{ ok: true }>("PATCH", `/api/projects/${id}`, { color }),
   deleteProject: (id: string) => req<{ ok: true }>("DELETE", `/api/projects/${id}`),
 
   searchChats: (q: string) =>
@@ -223,6 +246,15 @@ export type StreamHandlers = {
   onError?: (message: string) => void;
 };
 
+/** Time zone chosen in Settings > Profile (mirrored to localStorage so chat doesn't need a round trip). */
+function storedTz(): string {
+  try {
+    return localStorage.getItem("minimi.tz") || "";
+  } catch {
+    return "";
+  }
+}
+
 /** Resolves when the stream ends. Aborting `signal` ends it quietly (no onError). */
 export async function streamChat(body: ChatRequest, h: StreamHandlers, signal?: AbortSignal): Promise<void> {
   let res: Response;
@@ -230,7 +262,7 @@ export async function streamChat(body: ChatRequest, h: StreamHandlers, signal?: 
     res = await fetch(API_BASE + "/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ...body }),
+      body: JSON.stringify({ tz: storedTz() || Intl.DateTimeFormat().resolvedOptions().timeZone, ...body }),
       signal,
     });
   } catch (e) {

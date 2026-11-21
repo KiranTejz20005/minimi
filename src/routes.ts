@@ -5,6 +5,7 @@ import type { DigestQueue } from "./memory/digest.js";
 import { readPrefs, sanitizePrefs, writePrefs } from "./preferences.js";
 import { friendlyError, maskKey, parseTestTarget, validateTavilyKey } from "./integrations.js";
 import { getClock } from "./clock.js";
+import { DEFAULT_PROJECT_COLOR, normalizeProjectColor, parseProjectColor } from "./projects.js";
 import { newId } from "./util/ids.js";
 import { createDefaultSearchProvider, searchProviderName } from "./search/free.js";
 import { createLlm } from "./llm/anthropic.js";
@@ -154,6 +155,12 @@ export function registerRoutes(app: Hono, db: DatabaseSync, deps: { digest?: Dig
   } catch {
     /* column already exists */
   }
+  // Folders carry a color (palette in ./projects.ts). NULL means the default blue. Safe to re-run.
+  try {
+    db.exec(`ALTER TABLE projects ADD COLUMN color TEXT`);
+  } catch {
+    /* column already exists */
+  }
 
   // ── Conversations ──────────────────────────────────────────────────────────
   const listConversationsFull = () =>
@@ -170,15 +177,17 @@ export function registerRoutes(app: Hono, db: DatabaseSync, deps: { digest?: Dig
     ).map((r) => ({ ...r, pinned: Boolean(r.pinned) }));
 
   const listProjects = () =>
-    db
+    (
+      db
       .prepare(
-        `SELECT p.id, p.name, p.created_at,
+        `SELECT p.id, p.name, p.created_at, p.color,
                 (SELECT COUNT(*) FROM conversation_meta cm WHERE cm.project_id = p.id) AS chat_count,
                 (SELECT COUNT(*) FROM attachments a LEFT JOIN conversation_meta cm ON cm.conversation_id = a.conversation_id
                    WHERE COALESCE(a.project_id, cm.project_id) = p.id) AS file_count
          FROM projects p ORDER BY p.created_at`,
       )
-      .all() as Row[];
+      .all() as Row[]
+    ).map((r) => ({ ...r, color: normalizeProjectColor(r.color) }));
 
   app.get("/api/conversations", (c) => c.json({ conversations: listConversationsFull(), projects: listProjects() }));
 
@@ -277,18 +286,36 @@ export function registerRoutes(app: Hono, db: DatabaseSync, deps: { digest?: Dig
 
   // ── Projects ───────────────────────────────────────────────────────────────
   app.post("/api/projects", async (c) => {
-    const body = (await c.req.json()) as { name?: string };
+    const body = (await c.req.json().catch(() => ({}))) as { name?: string; color?: unknown };
     const name = body.name?.trim().slice(0, 60);
     if (!name) return c.json({ error: "name required" }, 400);
+    let color = DEFAULT_PROJECT_COLOR;
+    if (body.color !== undefined && body.color !== null) {
+      const parsed = parseProjectColor(body.color);
+      if (!parsed) return c.json({ error: "invalid color" }, 400);
+      color = parsed;
+    }
     const id = newId("prj");
-    db.prepare(`INSERT INTO projects (id, name, created_at) VALUES (?,?,?)`).run(id, name, now());
-    return c.json({ id, name });
+    db.prepare(`INSERT INTO projects (id, name, created_at, color) VALUES (?,?,?,?)`).run(id, name, now(), color);
+    return c.json({ id, name, color });
   });
   app.patch("/api/projects/:id", async (c) => {
-    const body = (await c.req.json()) as { name?: string };
-    const name = body.name?.trim().slice(0, 60);
-    if (!name) return c.json({ error: "name required" }, 400);
-    db.prepare(`UPDATE projects SET name = ? WHERE id = ?`).run(name, c.req.param("id"));
+    const body = (await c.req.json().catch(() => ({}))) as { name?: string; color?: unknown };
+    const id = c.req.param("id");
+    if (!db.prepare(`SELECT 1 FROM projects WHERE id = ?`).get(id)) return c.json({ error: "project not found" }, 404);
+    const hasName = body.name !== undefined;
+    const hasColor = body.color !== undefined;
+    if (!hasName && !hasColor) return c.json({ error: "name or color required" }, 400);
+    if (hasName) {
+      const name = typeof body.name === "string" ? body.name.trim().slice(0, 60) : "";
+      if (!name) return c.json({ error: "name required" }, 400);
+      db.prepare(`UPDATE projects SET name = ? WHERE id = ?`).run(name, id);
+    }
+    if (hasColor) {
+      const color = parseProjectColor(body.color);
+      if (!color) return c.json({ error: "invalid color" }, 400);
+      db.prepare(`UPDATE projects SET color = ? WHERE id = ?`).run(color, id);
+    }
     return c.json({ ok: true });
   });
   app.delete("/api/projects/:id", (c) => {
@@ -408,6 +435,7 @@ export function registerRoutes(app: Hono, db: DatabaseSync, deps: { digest?: Dig
         connected: true,
       },
       timezone: cfg.DEFAULT_TZ,
+      security: { accessProtected: Boolean(cfg.ACCESS_TOKEN?.trim()) },
     };
   };
   app.get("/api/integrations", (c) => c.json(integrations()));
