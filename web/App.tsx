@@ -12,6 +12,7 @@ import { useMediaQuery, useStored, useTheme } from "./shell/util";
 import { AnalyticsView } from "./views/AnalyticsView";
 import { FilesView } from "./views/FilesView";
 import { RunsView } from "./views/RunsView";
+import { SettingsView } from "./views/SettingsView";
 
 type Route = { view: View; id?: string };
 
@@ -21,6 +22,7 @@ function parseHash(): Route {
   if (v === "runs") return { view: "runs", id: rid };
   if (v === "files") return { view: "files" };
   if (v === "analytics") return { view: "analytics" };
+  if (v === "settings") return { view: "settings", id: rid }; // id = section
   return { view: "chat", id: rid };
 }
 const hashOf = (r: Route) => `#/${r.view}${r.id ? `/${encodeURIComponent(r.id)}` : ""}`;
@@ -43,6 +45,15 @@ function Shell() {
   const narrow = useMediaQuery("(max-width: 899px)");
   const collapsed = narrow || collapsedPref;
   const [userName, setUserName] = useStored<string>("minimi.name", "You");
+  // Settings saves the display name and announces it, so the sidebar row updates without a reload.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const n = (e as CustomEvent<string>).detail;
+      if (typeof n === "string") setUserName(n);
+    };
+    window.addEventListener("minimi:name", on);
+    return () => window.removeEventListener("minimi:name", on);
+  }, [setUserName]);
   const [integrations, setIntegrations] = useState<Integrations | null>(null);
   const [devRoutes, setDevRoutes] = useState(false);
   const [focusToken, setFocusToken] = useState(0);
@@ -129,7 +140,8 @@ function Shell() {
   if (route.view === "chat") keptChat.current = route.id;
 
   return (
-    <div className="app">
+    <div className="app" data-view={route.view}>
+      {route.view !== "settings" && (
       <Sidebar
         conversations={ws.conversations}
         projects={ws.projects}
@@ -148,6 +160,7 @@ function Shell() {
         onNav={(v) => go(v === "chat" ? { view: "chat", id: keptChat.current } : { view: v })}
         onOpenPalette={() => setDialog("palette")}
         onOpenIntegrations={() => setDialog("integrations")}
+        onOpenSettings={() => go({ view: "settings" })}
         onOpenShortcuts={() => setDialog("shortcuts")}
         onEditName={() => setDialog("name")}
         onSetTheme={setTheme}
@@ -158,6 +171,7 @@ function Shell() {
         }}
         actions={actions}
       />
+      )}
 
       <main className="main" id="main">
         {/* ChatView stays mounted so an in-flight answer keeps streaming while you browse other views. */}
@@ -188,6 +202,15 @@ function Shell() {
         {route.view === "analytics" && (
           <div className="pane">
             <AnalyticsView />
+          </div>
+        )}
+        {route.view === "settings" && (
+          <div className="pane">
+            <SettingsView
+              section={route.id}
+              onSection={(s) => go({ view: "settings", id: s }, true)}
+              onBack={() => go({ view: "chat", id: keptChat.current })}
+            />
           </div>
         )}
       </main>

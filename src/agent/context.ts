@@ -25,8 +25,9 @@ export function buildContext(opts: {
   history: MessageRow[];
   userMessage: string;
   memoryXml?: string;
+  customInstructions?: string;
 }): BuiltContext {
-  const system = buildSystem(opts.clock, opts.tz);
+  const system = buildSystem(opts.clock, opts.tz, opts.customInstructions);
   const prior = opts.history.slice(-HISTORY_LIMIT);
   const messages: MessageParam[] = prior.map((m) => ({
     role: m.role,

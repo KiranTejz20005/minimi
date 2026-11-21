@@ -23,11 +23,14 @@ import {
   IconTrash,
   IconEdit,
   IconClock,
+  IconExternal,
+  IconSettings,
 } from "./icons";
 import { Avatar, ConfirmDialog, Menu, anchorFromEvent, anchorFromPoint, type MenuAnchor, type MenuItem } from "./ui";
 import { initials, type ThemePref } from "./util";
 
-export type View = "chat" | "runs" | "files" | "analytics";
+export type View = "chat" | "runs" | "files" | "analytics" | "settings";
+const REPO_URL = "https://github.com/KiranTejz20005/minimi";
 
 export interface SidebarProps {
   conversations: Conversation[];
@@ -48,6 +51,7 @@ export interface SidebarProps {
   onNav: (v: View) => void;
   onOpenPalette: () => void;
   onOpenIntegrations: () => void;
+  onOpenSettings: () => void;
   onOpenShortcuts: () => void;
   onEditName: () => void;
   onSetTheme: (t: ThemePref) => void;
@@ -62,7 +66,7 @@ export const MOD = isMac ? "⌘" : "Ctrl";
 
 export function Sidebar(p: SidebarProps) {
   const { conversations, projects, actions } = p;
-  const [menu, setMenu] = useState<{ anchor: MenuAnchor; items: MenuItem[]; align?: "start" | "end"; width?: number; label: string; rowId?: string } | null>(null);
+  const [menu, setMenu] = useState<{ anchor: MenuAnchor; items: MenuItem[]; align?: "start" | "end"; width?: number; label: string; rowId?: string; header?: ReactNode; side?: "top" | "bottom" } | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [creating, setCreating] = useState(false);
@@ -161,18 +165,36 @@ export function Sidebar(p: SidebarProps) {
     setMenu({
       anchor: anchorFromEvent(e),
       label: "Account",
-      width: 220,
+      width: 240,
+      side: "top",
+      header: (
+        <div className="um-head">
+          <Avatar text={initials(p.userName)} size={32} tone="accent" />
+          <div className="um-head__txt">
+            <strong>{p.userName}</strong>
+            <small>Local workspace</small>
+          </div>
+        </div>
+      ),
       items: [
+        {
+          key: "appearance",
+          label: "Appearance",
+          icon: p.theme === "light" ? <IconSun /> : p.theme === "system" ? <IconMonitor /> : <IconMoon />,
+          submenu: (["system", "light", "dark"] as ThemePref[]).map((t) => ({
+            key: `t-${t}`,
+            label: t[0]!.toUpperCase() + t.slice(1),
+            icon: t === "dark" ? <IconMoon /> : t === "light" ? <IconSun /> : <IconMonitor />,
+            checked: p.theme === t,
+            onSelect: () => p.onSetTheme(t),
+          })),
+        },
+        { key: "int", label: "Integrations", icon: <IconPlug />, onSelect: p.onOpenIntegrations },
+        { key: "settings", label: "Settings", icon: <IconSettings />, onSelect: p.onOpenSettings },
         { key: "name", label: "Edit display name…", icon: <IconEdit />, onSelect: p.onEditName },
         { key: "s1", separator: true },
-        { key: "th", heading: true, label: "Theme" },
-        ...(["dark", "light", "system"] as ThemePref[]).map((t) => ({
-          key: `t-${t}`,
-          label: t[0]!.toUpperCase() + t.slice(1),
-          icon: t === "dark" ? <IconMoon /> : t === "light" ? <IconSun /> : <IconMonitor />,
-          checked: p.theme === t,
-          onSelect: () => p.onSetTheme(t),
-        })),
+        { key: "sc", label: "Keyboard shortcuts", icon: <IconKeyboard />, onSelect: p.onOpenShortcuts },
+        { key: "docs", label: "Learn more", icon: <IconExternal />, onSelect: () => void window.open(REPO_URL, "_blank", "noopener,noreferrer") },
         ...(p.onOpenClock
           ? ([{ key: "s2", separator: true }, { key: "clock", label: "Developer clock…", icon: <IconClock />, onSelect: p.onOpenClock }] as MenuItem[])
           : []),
@@ -263,7 +285,7 @@ export function Sidebar(p: SidebarProps) {
     />
   );
 
-  const menuEl = menu && <Menu anchor={menu.anchor} items={menu.items} label={menu.label} width={menu.width} align={menu.align} onClose={() => setMenu(null)} />;
+  const menuEl = menu && <Menu anchor={menu.anchor} items={menu.items} label={menu.label} width={menu.width} align={menu.align} header={menu.header} side={menu.side} onClose={() => setMenu(null)} />;
 
   /* ── collapsed rail ── */
   if (p.collapsed) {

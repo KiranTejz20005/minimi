@@ -101,7 +101,22 @@ export function useTheme(): [ThemePref, (t: ThemePref) => void] {
     mq.addEventListener("change", fn);
     return () => mq.removeEventListener("change", fn);
   }, [p]);
-  return [p, (t) => setPref(t)];
+  // Every useTheme() instance (App, Settings) stays in sync: a change is broadcast and the others adopt it.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const t = (e as CustomEvent<string>).detail;
+      if (t === "dark" || t === "light" || t === "system") setPref(t);
+    };
+    window.addEventListener("minimi:theme", on);
+    return () => window.removeEventListener("minimi:theme", on);
+  }, [setPref]);
+  return [
+    p,
+    (t) => {
+      setPref(t);
+      window.dispatchEvent(new CustomEvent("minimi:theme", { detail: t }));
+    },
+  ];
 }
 
 /* ── Misc hooks ── */

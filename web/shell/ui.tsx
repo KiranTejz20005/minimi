@@ -194,6 +194,8 @@ export function Menu({
   width = 216,
   align = "start",
   label,
+  header,
+  side,
 }: {
   anchor: MenuAnchor;
   items: MenuItem[];
@@ -201,6 +203,10 @@ export function Menu({
   width?: number;
   align?: "start" | "end";
   label?: string;
+  /** Content above the items (e.g. who is signed in) */
+  header?: ReactNode;
+  /** Preferred side to open on; flips when there is no room */
+  side?: "top" | "bottom";
 }) {
   const [open, setOpen] = useState(false);
   const closeRef = useRef(onClose);
@@ -255,6 +261,8 @@ export function Menu({
         items={toDropdownItems(items)}
         width={width}
         align={align}
+        side={side}
+        header={header}
         aria-label={label}
         className="ui-dmc-anchor__menu"
         /* Non-focusable hit target: avoids trapping focus on an aria-hidden phantom button (esp. context menus) */
