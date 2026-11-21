@@ -77,9 +77,20 @@ export function useStored<T extends string | boolean>(key: string, initial: T): 
       } catch {
         /* storage unavailable */
       }
+      // Other components reading the same key (e.g. Sidebar and Settings) adopt the change.
+      window.dispatchEvent(new CustomEvent("minimi:stored", { detail: { key, value: String(v) } }));
     },
     [key],
   );
+  useEffect(() => {
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<{ key: string; value: string }>).detail;
+      if (d?.key === key) setVal((typeof initial === "boolean" ? d.value === "true" : d.value) as T);
+    };
+    window.addEventListener("minimi:stored", on);
+    return () => window.removeEventListener("minimi:stored", on);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
   return [val, set];
 }
 

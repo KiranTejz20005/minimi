@@ -28,7 +28,7 @@ import {
 import { createTraceWriter } from "../trace.js";
 import { newId } from "../util/ids.js";
 import { buildContext } from "./context.js";
-import { readPrefs } from "../preferences.js";
+import { composeUserContext, readPrefs } from "../preferences.js";
 import {
   citedNumbers,
   collectSources,
@@ -229,7 +229,7 @@ export async function runTurn(
   });
 
   const shouldRecall =
-    timeRefs.length > 0 || RECALL_CUE.test(input.message);
+    readPrefs(db).memoryRecall && (timeRefs.length > 0 || RECALL_CUE.test(input.message));
   const tRecall0 = clock.now().getTime();
   const recall: RecallResult | null = shouldRecall
     ? retrieve(db, input.message, timeRefs, tz, conversationId)
@@ -259,7 +259,7 @@ export async function runTurn(
     history,
     userMessage: input.contextMessage ?? input.message,
     memoryXml: memoryXml ?? undefined,
-    customInstructions: prefs.useInstructions ? prefs.customInstructions : undefined,
+    customInstructions: composeUserContext(prefs) || undefined,
   });
 
   let loopResult: Awaited<ReturnType<typeof runAgentLoop>>;

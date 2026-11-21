@@ -28,3 +28,43 @@ describe("customInstructionsBlock", () => {
     expect(b?.text).toContain("never override");
   });
 });
+
+import { composeUserContext, isValidTimeZone, MAX_PERSONAL, MAX_WORKSPACE_NAME } from "../src/preferences.js";
+
+describe("sanitizePrefs (profile, workspace, notifications)", () => {
+  it("validates enums, time zones and email", () => {
+    expect(sanitizePrefs({ role: "Engineer", timezone: "Europe/Vienna", email: "a@b.co" }).ok).toBe(true);
+    expect(sanitizePrefs({ role: "Wizard" }).ok).toBe(false);
+    expect(sanitizePrefs({ timezone: "Mars/Base" }).ok).toBe(false);
+    expect(sanitizePrefs({ timezone: "" }).ok).toBe(true);
+    expect(sanitizePrefs({ email: "not an email" }).ok).toBe(false);
+    expect(sanitizePrefs({ email: "" }).ok).toBe(true);
+    expect(sanitizePrefs({ notifyFailed: "email" }).ok).toBe(false);
+    expect(sanitizePrefs({ notifyFailed: "off", notifySound: false, memoryRecall: false }).ok).toBe(true);
+  });
+  it("enforces length limits and a non-empty workspace name", () => {
+    expect(sanitizePrefs({ personalContext: "x".repeat(MAX_PERSONAL + 1) }).ok).toBe(false);
+    expect(sanitizePrefs({ workspaceName: "x".repeat(MAX_WORKSPACE_NAME + 1) }).ok).toBe(false);
+    expect(sanitizePrefs({ workspaceName: "   " }).ok).toBe(false);
+  });
+  it("knows valid IANA zones", () => {
+    expect(isValidTimeZone("Asia/Kolkata")).toBe(true);
+    expect(isValidTimeZone("Nope/Zone")).toBe(false);
+  });
+});
+
+describe("composeUserContext", () => {
+  const base = { displayName: "", role: "", personalContext: "", workspaceName: "Acme", companyContext: "", customInstructions: "", useInstructions: true };
+  it("is empty when nothing is set", () => expect(composeUserContext(base)).toBe(""));
+  it("joins user, company and instructions in order", () => {
+    const t = composeUserContext({ ...base, displayName: "Ada", role: "Engineer", personalContext: "Prefers terse answers", companyContext: "We sell CRMs", customInstructions: "Cite sources" });
+    expect(t.indexOf("About the user")).toBeLessThan(t.indexOf("About the user's company (Acme)"));
+    expect(t.indexOf("About the user's company")).toBeLessThan(t.indexOf("Custom instructions"));
+    expect(t).toContain("Name: Ada. Role: Engineer");
+  });
+  it("drops instructions when they are switched off but keeps the rest", () => {
+    const t = composeUserContext({ ...base, companyContext: "We sell CRMs", customInstructions: "Cite sources", useInstructions: false });
+    expect(t).toContain("We sell CRMs");
+    expect(t).not.toContain("Cite sources");
+  });
+});

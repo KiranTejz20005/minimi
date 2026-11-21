@@ -9,6 +9,7 @@ import {
   type SourceRef,
 } from "../api";
 import { approvals } from "./approvals";
+import { notify } from "../shell/notify";
 import type { ChatSettings, RunInfo, SearchCardData, Toast, UiMessage } from "./types";
 
 interface Params {
@@ -284,6 +285,7 @@ export function useChat(p: Params) {
           },
           onApprovalRequest: ({ id, queries }) => {
             approvalIds.current.add(id);
+            void notify("approval", "Approval needed", queries[0]);
             approvals.add({ id, conversationId: convRef.current ?? convId, queries, createdAt: Date.now() });
             patch((m) => ({ ...m, approval: { id, queries, status: "pending", expiresAt: Date.now() + 120_000 } }));
           },
@@ -333,6 +335,7 @@ export function useChat(p: Params) {
             if (raf) cancelAnimationFrame(raf);
             flush();
             cardsByTurn.current.set(d.turnId, { cards: [...cards], memory });
+            void notify("finished", "Answer ready", "Minimi finished your question.");
             if (alive() && !convRef.current) {
               convRef.current = d.conversationId;
               latest.current.onConversationCreated(d.conversationId);
@@ -340,6 +343,7 @@ export function useChat(p: Params) {
           },
           onError: (m) => {
             failure = m;
+            void notify("failed", "Run failed", m);
           },
         },
         ac.signal,
