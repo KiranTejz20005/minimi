@@ -48,9 +48,12 @@ export interface RunInfo {
   cited: number;
 }
 
+/** request = ask before every network action; auto = ask only for potentially unsafe ones; full = never ask. */
+export type ApprovalMode = "request" | "auto" | "full";
+
 export interface ChatSettings {
   model: "auto" | "main" | "fast" | "smart";
-  approval: boolean;
+  approvalMode: ApprovalMode;
 }
 
 export type ToastKind = "info" | "error" | "success";

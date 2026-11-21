@@ -405,6 +405,7 @@ export function useChat(p: Params) {
         message: msg,
         conversationId: convRef.current,
         model: settings.model,
+        approvalMode: settings.approvalMode,
         attachmentIds: atts.map((a) => a.id),
       };
       setMessages((prev) => {
@@ -447,6 +448,7 @@ export function useChat(p: Params) {
         conversationId: convRef.current,
         regenerateTurnId: last.turnId,
         model: settings.model,
+        approvalMode: settings.approvalMode,
       },
       "regen",
     );

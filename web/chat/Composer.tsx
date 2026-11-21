@@ -3,6 +3,7 @@ import { api, type AttachmentRef, type Integrations } from "../api";
 import { DropdownMenu } from "../shell/DropdownMenu";
 import type { ChatSettings, Toast } from "./types";
 import { ArrowUp, Chevron, Close, FileIcon, Mic, Paperclip, Plus, Spinner, StopSquare } from "./icons";
+import { ApprovalMenu } from "./ApprovalMenu";
 
 const MAX_BYTES = 500_000;
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|log|ts|tsx|js|jsx|mjs|py|go|rs|java|c|h|cpp|html|css|sql|sh|yml|yaml|xml|toml|ini|env)$/i;
@@ -11,6 +12,8 @@ const ACCEPT = ".txt,.md,.markdown,.csv,.tsv,.json,.log,.ts,.tsx,.js,.jsx,.mjs,.
 type Att = { localId: string; name: string; status: "uploading" | "done" | "error"; ref?: AttachmentRef; error?: string };
 
 interface Props {
+  /** "hero" = centered on the home screen (taller, two-line); "dock" = pinned under the conversation. */
+  variant?: "hero" | "dock";
   streaming: boolean;
   hasMessages: boolean;
   conversationId: string | undefined;
@@ -25,7 +28,7 @@ interface Props {
 
 const SR: any = typeof window !== "undefined" ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition : null;
 
-export function Composer({ streaming, hasMessages, conversationId, integrations, settings, setSettings, focusToken, onSend, onStop, toast }: Props) {
+export function Composer({ variant = "dock", streaming, hasMessages, conversationId, integrations, settings, setSettings, focusToken, onSend, onStop, toast }: Props) {
   const [text, setText] = useState("");
   const [atts, setAtts] = useState<Att[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -45,6 +48,11 @@ export function Composer({ streaming, hasMessages, conversationId, integrations,
   useEffect(() => {
     if (focusToken > 0) ta.current?.focus();
   }, [focusToken]);
+
+  // The composer remounts when it moves between the home screen and the dock; keep the caret in it (desktop only).
+  useEffect(() => {
+    if (typeof window.matchMedia === "function" && window.matchMedia("(pointer: fine)").matches) ta.current?.focus({ preventScroll: true });
+  }, []);
 
   useEffect(() => () => recRef.current?.abort?.(), []);
 
@@ -166,6 +174,7 @@ export function Composer({ streaming, hasMessages, conversationId, integrations,
   return (
     <form
       className="cp"
+      data-variant={variant}
       data-dragging={dragging ? "" : undefined}
       onSubmit={(e) => { e.preventDefault(); submit(); }}
       onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(true); } }}
@@ -188,9 +197,9 @@ export function Composer({ streaming, hasMessages, conversationId, integrations,
       <textarea
         id="cp-input"
         ref={ta}
-        rows={1}
+        rows={variant === "hero" ? 2 : 1}
         value={text}
-        placeholder={hasMessages ? "Reply…" : "Ask anything…"}
+        placeholder={hasMessages ? "Reply…" : variant === "hero" ? "Ask anything — I search the live web and remember when you asked" : "Ask anything…"}
         autoComplete="off"
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKeyDown}
@@ -221,6 +230,7 @@ export function Composer({ streaming, hasMessages, conversationId, integrations,
               </button>
             )}
           />
+          <ApprovalMenu mode={settings.approvalMode} onChange={(approvalMode) => setSettings({ ...settings, approvalMode })} />
           <input
             ref={fileInput}
             name="attachments"

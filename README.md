@@ -101,7 +101,7 @@ You can verify both connections without chatting: open **Integrations** in the s
 5. **Message actions** — hover an answer: copy, **regenerate** (old answers become versions you can flip through),
    thumbs up/down (with a reason), **read aloud**.
 6. **Attach a file** — **＋ → Attach text file** (`.txt .md .csv .json`, code), then ask about it.
-7. **Request approval** — toggle it in the composer; the agent now asks before every web search (Approve / Decline).
+7. **Approvals** — the shield chip in the composer sets how the agent asks (see [Approvals](#approvals)).
 8. **Behind the scenes** — **Runs** shows every question's pipeline (time resolution → memory → search → citations)
    with timings; **Analytics** shows real usage; **Folders** shows attached files and projects.
 
@@ -220,7 +220,7 @@ The UI uses these; they're handy for scripting too (add `-u minimi:$ACCESS_TOKEN
 | Method & path | Purpose |
 |---|---|
 | `GET /health` | Liveness/readiness (public, even with auth on) |
-| `POST /api/chat` | Stream an answer (SSE). Body: `{ message, conversationId?, tz?, model?, approval?, attachmentIds?, regenerateTurnId? }`. Events: `conversation`, `memory`, `status`, `search_start`, `search_done`, `approval_request`, `token`, `sources`, `done`, `error` |
+| `POST /api/chat` | Stream an answer (SSE). Body: `{ message, conversationId?, tz?, model?, approvalMode?, attachmentIds?, regenerateTurnId? }`. Events: `conversation`, `memory`, `status`, `search_start`, `search_done`, `approval_request`, `token`, `sources`, `done`, `error` |
 | `GET /api/conversations` · `GET/PATCH/DELETE /api/conversations/:id` | List, read, rename/pin/move, delete chats |
 | `POST /api/projects` · `PATCH/DELETE /api/projects/:id` | Manage projects (folders) |
 | `GET /api/search?q=` | Search across chats |
@@ -256,3 +256,15 @@ curl -N -X POST http://localhost:3000/api/chat -H 'Content-Type: application/jso
 
 ---
 
+
+## Approvals
+
+The chip next to the attach button in the composer controls when the agent asks before acting. The choice is remembered per browser and sent with every message as `approvalMode`.
+
+| Mode | Behaviour |
+|---|---|
+| **Request approval** | Asks once per turn before any network action (web search, page fetch). Declining lets the agent carry on without the internet. |
+| **Approve for me** (default) | Only asks for potentially unsafe actions, such as fetching a page on localhost or a private network address. |
+| **Full access** | Never asks. Turning it on requires a one-time confirmation. |
+
+The server validates the value and falls back to **Approve for me** for anything it does not recognise. Requests from older clients that send `approval: true` are treated as **Request approval**.
