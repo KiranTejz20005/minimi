@@ -1,9 +1,10 @@
 import { useId, useMemo, useState, type ReactNode } from "react";
 import type { AttachmentRef, Integrations, SourceRef } from "../api";
-import { ProgressTracker } from "../ui";
-import type { Toast } from "./types";
+import { ProgressTracker, QueueMonitor } from "../ui";
+import type { ApprovalData, SearchCardData, Toast } from "./types";
 import { Check, Chevron, Close, Copy, Download, FileIcon, Spinner } from "./icons";
 import { copyText, hostOf, plainText, slug } from "./markdown";
+import { DocViewer, type DocTab } from "./DocViewer";
 
 export interface Step {
   id: string;
@@ -25,6 +26,10 @@ interface Props {
   integrations: Integrations | null;
   webPages: number;
   skills: string[];
+  /** Tool calls of the latest answer; drives the Tool queue section. */
+  toolCards?: SearchCardData[];
+  /** An approval the agent is waiting on; its queries show as waiting jobs. */
+  pendingApproval?: ApprovalData | null;
   onOpenIntegrations: () => void;
   toast: Toast;
 }
@@ -74,8 +79,49 @@ function Row({ icon, label, right, children, defaultOpen = false }: { icon: Reac
   );
 }
 
-export function RightPanel({ open, onClose, steps, title, answer, sources, uploads, integrations, webPages, skills, onOpenIntegrations, toast }: Props) {
+/** Latest turn's tool calls as a worker pool: slots = widest parallel batch, running calls fill them. */
+function ToolQueue({ cards, approval }: { cards: SearchCardData[]; approval?: ApprovalData | null }) {
+  const running = cards.filter((c) => c.status === "running");
+  const widest = cards.reduce<Record<number, number>>((m, c) => ((m[c.batch] = (m[c.batch] ?? 0) + 1), m), {});
+  const capacity = Math.max(1, running.length, ...Object.values(widest));
+  const waiting = approval?.status === "pending" ? approval.queries.map((q, i) => ({ id: `ap${i}`, label: q, meta: "needs approval" })) : [];
+  const done = cards.filter((c) => c.status === "done").length;
+  const failed = cards.filter((c) => c.status === "error").length;
+  const busy = running.length > 0 || waiting.length > 0;
+  return (
+    <QueueMonitor
+      compact
+      title="Tools"
+      name="this answer"
+      status={waiting.length ? { label: "Waiting on you", tone: "amber" } : running.length ? { label: "Running", tone: "blue" } : { label: "Finished", tone: "green" }}
+      waiting={waiting}
+      workers={Array.from({ length: capacity }, (_, i) => {
+        const c = running[i];
+        return { id: `t${i}`, name: c ? c.tool || "web_search" : `Slot ${i + 1}`, job: c ? { label: c.query } : null };
+      })}
+      capacity={capacity}
+      done={done}
+      failed={failed}
+      emptyQueue={busy ? "Nothing else waiting" : "Nothing waiting"}
+    />
+  );
+}
+
+export function RightPanel({ open, onClose, steps, title, answer, sources, uploads, integrations, webPages, skills, toolCards = [], pendingApproval, onOpenIntegrations, toast }: Props) {
   const [showEarlier, setShowEarlier] = useState(false);
+  // Documents opened beside the chat (answer as .md, uploads, outputs). "details" = the run overview.
+  const [docs, setDocs] = useState<DocTab[]>([]);
+  const [view, setView] = useState<string>("details");
+  const openDoc = (d: DocTab) => {
+    setDocs((cur) => (cur.some((x) => x.id === d.id) ? cur.map((x) => (x.id === d.id && d.content !== undefined ? d : x)) : [...cur, d]));
+    setView(d.id);
+  };
+  const closeDoc = (id: string) => {
+    setDocs((cur) => cur.filter((x) => x.id !== id));
+    setView((v) => (v === id ? "details" : v));
+  };
+  const showDoc = docs.find((d) => d.id === view);
+  const answerDoc = (): DocTab => ({ id: "answer", name: `${slug(title)}.md`, content: `# ${title || "Answer"}\n\n${answer}\n` });
   const earlier = steps.length > 4 ? steps.slice(0, steps.length - 3) : [];
   const visible = steps.length > 4 ? steps.slice(steps.length - 3) : steps;
   const trackerSteps = useMemo(
@@ -125,12 +171,24 @@ export function RightPanel({ open, onClose, steps, title, answer, sources, uploa
   );
 
   return (
-    <aside className="rp" aria-label="Run details" data-open={open ? "" : undefined} inert={!open}>
+    <aside className="rp" aria-label="Run details" data-open={open ? "" : undefined} data-doc={showDoc ? "" : undefined} inert={!open}>
       <div className="rp__inner">
         <div className="rp__top">
-          <h2>Run details</h2>
+          {docs.length > 0 ? (
+            <div className="seg" role="tablist" aria-label="Panel view">
+              <button type="button" role="tab" aria-selected={!showDoc} aria-pressed={!showDoc} onClick={() => setView("details")}>Details</button>
+              <button type="button" role="tab" aria-selected={!!showDoc} aria-pressed={!!showDoc} onClick={() => setView(docs[docs.length - 1]!.id)}>Documents {docs.length}</button>
+            </div>
+          ) : (
+            <h2>Run details</h2>
+          )}
           <button type="button" className="icon-btn" aria-label="Close panel" onClick={onClose}><Close /></button>
         </div>
+
+        {showDoc && (
+          <DocViewer tabs={docs} activeId={showDoc.id} onSelect={setView} onClose={closeDoc} sources={sources} toast={toast} />
+        )}
+        <div hidden={!!showDoc}>
 
         <Section title="Progress">
           {steps.length === 0 ? (
@@ -154,6 +212,12 @@ export function RightPanel({ open, onClose, steps, title, answer, sources, uploa
           )}
         </Section>
 
+        {(toolCards.length > 1 || (toolCards.length > 0 && toolCards.some((c) => c.status === "running")) || pendingApproval?.status === "pending") && (
+          <Section title="Tool queue" count={toolCards.filter((c) => c.status === "running").length || undefined}>
+            <ToolQueue cards={toolCards} approval={pendingApproval} />
+          </Section>
+        )}
+
         <Section title="Outputs">
           {answer.trim() ? (
             <>
@@ -167,10 +231,10 @@ export function RightPanel({ open, onClose, steps, title, answer, sources, uploa
               </div>
               <ul className="ol">
                 <li>
-                  <button type="button" className="ol__row" onClick={download}>
+                  <button type="button" className="ol__row" onClick={() => openDoc(answerDoc())} title="Open in viewer">
                     <span className="ol__icon"><FileIcon /></span>
                     <span className="ol__name">{slug(title)}.md</span>
-                    <span className="ol__type">Markdown</span>
+                    <span className="ol__type">Open</span>
                   </button>
                 </li>
                 {sources.map((s) => (
@@ -199,7 +263,12 @@ export function RightPanel({ open, onClose, steps, title, answer, sources, uploa
               {uploads.length > 0 && (
                 <ul className="ur__list">
                   {uploads.map((u) => (
-                    <li key={u.id}><span className="ur__kind">{u.kind}</span>{u.name}<small>{u.size < 1024 ? `${u.size} B` : `${(u.size / 1024).toFixed(1)} KB`}</small></li>
+                    <li key={u.id}>
+                      <button type="button" className="ur__link" onClick={() => openDoc({ id: `f-${u.id}`, name: u.name, fileId: u.id, kind: u.kind })} title="Open in viewer">
+                        <span className="ur__kind">{u.kind}</span>{u.name}
+                      </button>
+                      <small>{u.size < 1024 ? `${u.size} B` : `${(u.size / 1024).toFixed(1)} KB`}</small>
+                    </li>
                   ))}
                 </ul>
               )}
@@ -229,6 +298,7 @@ export function RightPanel({ open, onClose, steps, title, answer, sources, uploa
             </Row>
           </div>
         </Section>
+        </div>
       </div>
     </aside>
   );

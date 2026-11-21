@@ -1,9 +1,11 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import "./chat.css";
 import type { ChatViewProps } from "./contract";
-import type { ChatSettings, RunInfo, Toast, ToastKind, UiMessage } from "./types";
+import type { ApprovalMode, ChatSettings, RunInfo, Toast, ToastKind, UiMessage } from "./types";
 import { useChat } from "./useChat";
 import { Composer } from "./Composer";
+import { HomeCards, HomeHero } from "./Home";
+import { api } from "../api";
 import { AssistantMessage, UserMessage } from "./Message";
 import { RightPanel, type Step } from "./RightPanel";
 import { ArrowDown, Close, PanelRight, Spinner } from "./icons";
@@ -11,7 +13,8 @@ import { fmtMs } from "./markdown";
 
 const LS = {
   model: "minimi.model",
-  approval: "minimi.approval",
+  approval: "minimi.approval", // legacy boolean, migrated into approvalMode
+  approvalMode: "minimi.approvalMode",
   panel: "minimi.rightPanel",
 };
 
@@ -21,6 +24,22 @@ function readLS(key: string): string | null {
   } catch {
     return null;
   }
+}
+/** Stored mode; the old on/off toggle migrates (on to "request", off to "auto") and its key is dropped. */
+function readApprovalMode(): ApprovalMode {
+  const v = readLS(LS.approvalMode);
+  if (v === "request" || v === "auto" || v === "full") return v;
+  const legacy = readLS(LS.approval);
+  const mode: ApprovalMode = legacy === "1" || legacy === "true" ? "request" : "auto";
+  if (legacy !== null) {
+    writeLS(LS.approvalMode, mode);
+    try {
+      localStorage.removeItem(LS.approval);
+    } catch {
+      /* storage unavailable */
+    }
+  }
+  return mode;
 }
 function writeLS(key: string, value: string) {
   try {
@@ -77,14 +96,15 @@ export function ChatView(props: ChatViewProps) {
   const { conversationId, integrations, onConversationCreated, onChanged, onOpenRun, focusToken, onOpenIntegrations } = props;
 
   /* ── Settings (persisted) ── */
-  // Composer no longer exposes approval; read-only tools never prompt (user: only important things).
+  // "Request approval" is opt-in (off by default): when on, the server asks before the turn's first web search / page fetch.
   const [settings, setSettingsState] = useState<ChatSettings>(() => {
     const m = readLS(LS.model);
-    return { model: m === "main" || m === "fast" || m === "smart" ? m : "auto", approval: false };
+    return { model: m === "main" || m === "fast" || m === "smart" ? m : "auto", approvalMode: readApprovalMode() };
   });
   const setSettings = useCallback((s: ChatSettings) => {
-    setSettingsState({ ...s, approval: false });
+    setSettingsState(s);
     writeLS(LS.model, s.model);
+    writeLS(LS.approvalMode, s.approvalMode);
   }, []);
   const [panelOpen, setPanelOpen] = useState(() => readLS(LS.panel) !== "0");
   const togglePanel = (v: boolean) => {
@@ -102,11 +122,48 @@ export function ChatView(props: ChatViewProps) {
   }, []);
 
   /* ── Chat state ── */
-  const chat = useChat({ conversationId, settings, onConversationCreated, onChanged, toast });
+  // A folder picked on the home screen is attached to the chat as soon as the server has created it.
+  const folderRef = useRef<string | null>(null);
+  const setFolder = useCallback((id: string | null) => {
+    folderRef.current = id;
+  }, []);
+  const createdWithFolder = useCallback(
+    (id: string) => {
+      const folder = folderRef.current;
+      if (folder) {
+        folderRef.current = null;
+        api
+          .patchConversation(id, { projectId: folder })
+          .then(() => onChanged())
+          .catch(() => toast("Couldn't add this chat to the folder", "error"));
+      }
+      onConversationCreated(id);
+    },
+    [onConversationCreated, onChanged, toast],
+  );
+  const chat = useChat({ conversationId, settings, onConversationCreated: createdWithFolder, onChanged, toast });
   const { messages, streaming, loading, run, error } = chat;
   const lastIdx = messages.map((m) => m.role).lastIndexOf("assistant");
   const last = lastIdx >= 0 ? messages[lastIdx] : undefined;
   const hasMessages = messages.length > 0;
+  const landing = !hasMessages && !loading && !conversationId;
+  const landingRef = useRef(landing);
+  landingRef.current = landing;
+
+  /* Home → conversation: the composer remounts at the dock, so slide it down from where it was (FLIP). */
+  const heroRef = useRef<HTMLDivElement>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
+  const flipFrom = useRef<DOMRect | null>(null);
+  useLayoutEffect(() => {
+    if (landing) return;
+    const from = flipFrom.current;
+    flipFrom.current = null;
+    const el = dockRef.current;
+    if (!from || !el || typeof el.animate !== "function") return;
+    const dy = from.top - el.getBoundingClientRect().top;
+    if (Math.abs(dy) < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    el.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], { duration: 480, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+  }, [landing]);
 
   /* ── Scrolling: stick to the bottom unless the user scrolled up ── */
   const scroller = useRef<HTMLDivElement>(null);
@@ -128,14 +185,18 @@ export function ChatView(props: ChatViewProps) {
     const el = thread.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(() => {
-      if (stick.current) toBottom();
+      if (stick.current && !landingRef.current) toBottom();
     });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
   useLayoutEffect(() => {
-    if (stick.current) toBottom();
+    if (stick.current && !landingRef.current) toBottom();
   }, [messages, error]);
+  // The home screen reads top-down: start at the brand, never at the bottom of the cards.
+  useLayoutEffect(() => {
+    if (landing) scroller.current?.scrollTo({ top: 0 });
+  }, [landing]);
   useEffect(() => {
     stick.current = true;
   }, [chat.epoch]);
@@ -143,10 +204,11 @@ export function ChatView(props: ChatViewProps) {
   const send = useCallback(
     (text: string, atts: Parameters<typeof chat.send>[1]) => {
       stick.current = true;
+      if (landing) flipFrom.current = heroRef.current?.getBoundingClientRect() ?? null;
       return chat.send(text, atts);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [chat.send],
+    [chat.send, landing],
   );
   const regenerate = useCallback(() => {
     stick.current = true;
@@ -201,7 +263,21 @@ export function ChatView(props: ChatViewProps) {
           ? { kind: "done", text: "Done" }
           : null;
 
-  const landing = !hasMessages && !loading && !conversationId;
+  const composer = (variant: "hero" | "dock") => (
+    <Composer
+      variant={variant}
+      streaming={streaming}
+      hasMessages={hasMessages}
+      conversationId={conversationId}
+      integrations={integrations}
+      settings={settings}
+      setSettings={setSettings}
+      focusToken={focusToken}
+      onSend={send}
+      onStop={chat.stop}
+      toast={toast}
+    />
+  );
 
   return (
     <div className="cv" data-panel={panelOpen ? "open" : "closed"}>
@@ -242,15 +318,10 @@ export function ChatView(props: ChatViewProps) {
 
             {landing && (
               <div className="cv__landing">
-                <h2>What can I look up for you?</h2>
-                <p>Ask anything. I search the live web, remember when you asked, and re-check it later.</p>
-                <div className="cv__chips">
-                  {SUGGESTIONS.map((s) => (
-                    <button key={s.label} type="button" className="chip chip--btn" onClick={() => send(s.prompt, [])}>
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
+                <HomeHero heroRef={heroRef} integrations={integrations} onOpenIntegrations={onOpenIntegrations} onFolder={setFolder}>
+                  {composer("hero")}
+                </HomeHero>
+                <HomeCards suggestions={SUGGESTIONS} onPrompt={(p) => send(p, [])} />
               </div>
             )}
 
@@ -313,20 +384,11 @@ export function ChatView(props: ChatViewProps) {
           </button>
         )}
 
-        <div className="cv__compose">
-          <Composer
-            streaming={streaming}
-            hasMessages={hasMessages}
-            conversationId={conversationId}
-            integrations={integrations}
-            settings={settings}
-            setSettings={setSettings}
-            focusToken={focusToken}
-            onSend={send}
-            onStop={chat.stop}
-            toast={toast}
-          />
-        </div>
+        {!landing && (
+          <div className="cv__compose" ref={dockRef}>
+            {composer("dock")}
+          </div>
+        )}
 
         <div className="cv__toasts" aria-live="polite">
           {toasts.map((t) => (
@@ -348,6 +410,8 @@ export function ChatView(props: ChatViewProps) {
         integrations={integrations}
         webPages={webPages}
         skills={skills}
+        toolCards={cards}
+        pendingApproval={last?.approval ?? null}
         onOpenIntegrations={onOpenIntegrations}
         toast={toast}
       />
