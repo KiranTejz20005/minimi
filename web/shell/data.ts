@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type Conversation, type Project } from "../api";
+import { api, type Conversation, type Project, type ProjectColor } from "../api";
 import { errMsg } from "./util";
 
 export interface WorkspaceActions {
@@ -9,6 +9,7 @@ export interface WorkspaceActions {
   deleteChat(id: string): Promise<boolean>;
   createProject(name: string): Promise<string | null>;
   renameProject(id: string, name: string): Promise<boolean>;
+  setProjectColor(id: string, color: ProjectColor): Promise<boolean>;
   deleteProject(id: string): Promise<boolean>;
 }
 
@@ -93,6 +94,11 @@ export function useWorkspace(toast: Toast) {
           await api.renameProject(id, name);
           void refresh();
         }, "Couldn't rename project"),
+      setProjectColor: (id, color) =>
+        run(() => setProjects((l) => l.map((p) => (p.id === id ? { ...p, color } : p))), async () => {
+          await api.setProjectColor(id, color);
+          void refresh();
+        }, "Couldn't change color"),
       deleteProject: (id) =>
         run(
           () => {
@@ -107,6 +113,17 @@ export function useWorkspace(toast: Toast) {
         ),
     };
   }, [refresh, toast]);
+
+  // Other screens (the Folders page) change a folder color by announcing it; handling it here keeps one optimistic
+  // update + one rollback path for every view.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<{ id: string; color: ProjectColor }>).detail;
+      if (d?.id && d.color) void actions.setProjectColor(d.id, d.color);
+    };
+    window.addEventListener("minimi:project-color", on);
+    return () => window.removeEventListener("minimi:project-color", on);
+  }, [actions]);
 
   return { conversations, projects, loaded, refresh, actions };
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { api, type AttachmentRef, type FileRow, type Project } from "../api";
-import { IconChat, IconDownload, IconFile, IconFolder, IconGrid, IconList, IconPlus, IconSearch, IconTrash, IconUpload } from "../shell/icons";
+import { FOLDER_COLORS, FOLDER_COLOR_ORDER, FolderIcon, IconChat, IconDownload, IconFile, IconFolder, IconGrid, IconList, IconPlus, IconSearch, IconTrash, IconUpload } from "../shell/icons";
 import { useToast } from "../shell/toast";
 import { ConfirmDialog, Dialog, Empty, Spinner } from "../shell/ui";
 import { ContextMenu, Loading, Skeleton } from "../ui";
@@ -195,6 +195,17 @@ export function FilesView({
     }
   };
 
+  /** Palette submenu with a check on the current color. The change itself is handled by useWorkspace (instant + rollback). */
+  const colorItems = (p: Project) =>
+    FOLDER_COLOR_ORDER.map((col) => ({
+      label: FOLDER_COLORS[col].label,
+      icon: <FolderIcon color={col} size={16} />,
+      checked: p.color === col,
+      onSelect: () => {
+        if (p.color !== col) window.dispatchEvent(new CustomEvent("minimi:project-color", { detail: { id: p.id, color: col } }));
+      },
+    }));
+
   const startRename = (p: Project) => {
     setName(p.name);
     setRenaming(p);
@@ -274,9 +285,22 @@ export function FilesView({
             </button>
             <header className="folder-head">
               <h1>
-                <span className="folder-ico">
-                  <IconFolder size={24} />
-                </span>
+                <ContextMenu aria-label={`Change color of ${folder.name}`} items={colorItems(folder)}>
+                  <button
+                    type="button"
+                    className="folder-ico folder-ico--btn"
+                    title="Change color"
+                    aria-label="Change folder color"
+                    aria-haspopup="menu"
+                    onClick={(e) => {
+                      // The menu opens on a context-menu event; a plain click asks for the same thing at the button.
+                      const r = e.currentTarget.getBoundingClientRect();
+                      e.currentTarget.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left, clientY: r.bottom + 4 }));
+                    }}
+                  >
+                    <FolderIcon color={folder.color} size={28} />
+                  </button>
+                </ContextMenu>
                 {folder.name}
               </h1>
               <span className="grow" />
@@ -365,12 +389,13 @@ export function FilesView({
                       items={[
                         { label: "Open folder", onSelect: () => setOpenId(p.id) },
                         { label: "Rename", onSelect: () => startRename(p) },
-                        { label: "Delete", onSelect: () => setDeleting(p) },
+                        { label: "Change color", icon: <FolderIcon color={p.color} size={16} />, submenu: colorItems(p) },
+                        { label: "Delete", divider: true, danger: true, onSelect: () => setDeleting(p) },
                       ]}
                     >
                       <button type="button" className="folder-card" onClick={() => setOpenId(p.id)}>
                         <span className="folder-ico">
-                          <IconFolder size={22} />
+                          <FolderIcon color={p.color} size={26} />
                         </span>
                         <span className="folder-text">
                           <strong>{p.name}</strong>

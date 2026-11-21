@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import type { Conversation, Project } from "../api";
 import type { WorkspaceActions } from "./data";
 import {
+  FOLDER_COLORS,
+  FOLDER_COLOR_ORDER,
+  FolderIcon,
   IconBell,
   IconChart,
   IconChat,
@@ -23,11 +26,12 @@ import {
   IconTrash,
   IconEdit,
   IconClock,
+  IconGlobe,
   IconExternal,
   IconSettings,
 } from "./icons";
 import { Avatar, ConfirmDialog, Menu, anchorFromEvent, anchorFromPoint, type MenuAnchor, type MenuItem } from "./ui";
-import { initials, type ThemePref } from "./util";
+import { initials, useStored, type ThemePref } from "./util";
 
 export type View = "chat" | "runs" | "files" | "analytics" | "settings";
 const REPO_URL = "https://github.com/KiranTejz20005/minimi";
@@ -53,14 +57,13 @@ export interface SidebarProps {
   onOpenIntegrations: () => void;
   onOpenSettings: () => void;
   onOpenShortcuts: () => void;
-  onEditName: () => void;
   onSetTheme: (t: ThemePref) => void;
-  onOpenClock?: () => void;
   onNewProject: () => void;
   actions: WorkspaceActions;
 }
 
 type Editing = { kind: "chat" | "project"; id: string } | null;
+const DRAG_TYPE = "application/x-minimi-chat";
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 export const MOD = isMac ? "⌘" : "Ctrl";
 
@@ -72,6 +75,25 @@ export function Sidebar(p: SidebarProps) {
   const [creating, setCreating] = useState(false);
   const [confirm, setConfirm] = useState<{ kind: "chat" | "project"; id: string; name: string } | null>(null);
   const lastSignal = useRef(p.newProjectSignal);
+
+  /* ── drag & drop: chats onto projects (and back out onto the Chats list) ── */
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null); // a project id, or "loose"
+  const [landed, setLanded] = useState<{ project: string | null; chat: string } | null>(null);
+  const dragRef = useRef<string | null>(null);
+  const hoverTimer = useRef<number | null>(null);
+  const landedTimer = useRef<number | null>(null);
+  const clearHover = () => {
+    if (hoverTimer.current != null) window.clearTimeout(hoverTimer.current);
+    hoverTimer.current = null;
+  };
+  useEffect(
+    () => () => {
+      if (hoverTimer.current != null) window.clearTimeout(hoverTimer.current);
+      if (landedTimer.current != null) window.clearTimeout(landedTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (p.newProjectSignal !== lastSignal.current) {
@@ -101,6 +123,67 @@ export function Sidebar(p: SidebarProps) {
       else n.add(id);
       return n;
     });
+
+  const endDrag = () => {
+    clearHover();
+    dragRef.current = null;
+    setDragId(null);
+    setDropTarget(null);
+  };
+  const startDrag = (e: DragEvent<HTMLLIElement>, c: Conversation) => {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData(DRAG_TYPE, c.id);
+    e.dataTransfer.setData("text/plain", c.title ?? "New chat");
+    // A small pill that follows the pointer instead of the browser's translucent copy of the row.
+    const ghost = document.createElement("div");
+    ghost.className = "drag-ghost";
+    ghost.textContent = c.title ?? "New chat";
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 14, 16);
+    window.setTimeout(() => ghost.remove(), 0);
+    dragRef.current = c.id;
+    // Dim the source row one tick later so the browser snapshots it un-dimmed.
+    window.setTimeout(() => setDragId(c.id), 0);
+  };
+  const draggedChat = () => conversations.find((x) => x.id === dragRef.current);
+  const overProject = (e: DragEvent<HTMLElement>, projectId: string) => {
+    const c = draggedChat();
+    if (!c || c.project_id === projectId) return; // nothing to move: not a drop target
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dropTarget !== projectId) setDropTarget(projectId);
+    if (!expanded.has(projectId) && hoverTimer.current == null) {
+      // Hovering a collapsed project opens it so the chat can be dropped among its chats.
+      hoverTimer.current = window.setTimeout(() => {
+        hoverTimer.current = null;
+        setExpanded((s) => new Set(s).add(projectId));
+      }, 600);
+    }
+  };
+  const overLoose = (e: DragEvent<HTMLElement>) => {
+    const c = draggedChat();
+    if (!c?.project_id) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dropTarget !== "loose") setDropTarget("loose");
+  };
+  const leaveTarget = (e: DragEvent<HTMLElement>, key: string) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    clearHover();
+    setDropTarget((t) => (t === key ? null : t));
+  };
+  const dropOn = (e: DragEvent<HTMLElement>, projectId: string | null) => {
+    e.preventDefault();
+    const id = dragRef.current ?? e.dataTransfer.getData(DRAG_TYPE);
+    const c = conversations.find((x) => x.id === id);
+    endDrag();
+    if (!c || (c.project_id ?? null) === projectId) return;
+    if (projectId) setExpanded((s) => new Set(s).add(projectId));
+    setLanded({ project: projectId, chat: c.id });
+    if (landedTimer.current != null) window.clearTimeout(landedTimer.current);
+    landedTimer.current = window.setTimeout(() => setLanded(null), 900);
+    void actions.moveChat(c.id, projectId); // optimistic; the workspace hook rolls back + toasts on failure
+  };
 
   /* ── menus ── */
   const chatMenu = (c: Conversation, anchor: MenuAnchor) => {
@@ -133,6 +216,18 @@ export function Sidebar(p: SidebarProps) {
       width: 190,
       items: [
         { key: "rename", label: "Rename", icon: <IconEdit />, onSelect: () => setEditing({ kind: "project", id: pr.id }) },
+        {
+          key: "color",
+          label: "Change color",
+          icon: <FolderIcon color={pr.color} size={16} />,
+          submenu: FOLDER_COLOR_ORDER.map((col) => ({
+            key: `color-${col}`,
+            label: FOLDER_COLORS[col].label,
+            icon: <FolderIcon color={col} size={16} />,
+            checked: pr.color === col,
+            onSelect: () => void actions.setProjectColor(pr.id, col),
+          })),
+        },
         { key: "sep", separator: true },
         { key: "delete", label: "Delete project", icon: <IconTrash />, danger: true, onSelect: () => setConfirm({ kind: "project", id: pr.id, name: pr.name }) },
       ],
@@ -169,7 +264,7 @@ export function Sidebar(p: SidebarProps) {
       side: "top",
       header: (
         <div className="um-head">
-          <Avatar text={initials(p.userName)} size={32} tone="accent" />
+          <UserAvatar name={p.userName} size={32} tone="accent" />
           <div className="um-head__txt">
             <strong>{p.userName}</strong>
             <small>Local workspace</small>
@@ -177,6 +272,12 @@ export function Sidebar(p: SidebarProps) {
         </div>
       ),
       items: [
+        {
+          key: "language",
+          label: "Language",
+          icon: <IconGlobe />,
+          submenu: [{ key: "lang-en", label: "English", checked: true, onSelect: () => {} }],
+        },
         {
           key: "appearance",
           label: "Appearance",
@@ -191,13 +292,18 @@ export function Sidebar(p: SidebarProps) {
         },
         { key: "int", label: "Integrations", icon: <IconPlug />, onSelect: p.onOpenIntegrations },
         { key: "settings", label: "Settings", icon: <IconSettings />, onSelect: p.onOpenSettings },
-        { key: "name", label: "Edit display name…", icon: <IconEdit />, onSelect: p.onEditName },
         { key: "s1", separator: true },
-        { key: "sc", label: "Keyboard shortcuts", icon: <IconKeyboard />, onSelect: p.onOpenShortcuts },
-        { key: "docs", label: "Learn more", icon: <IconExternal />, onSelect: () => void window.open(REPO_URL, "_blank", "noopener,noreferrer") },
-        ...(p.onOpenClock
-          ? ([{ key: "s2", separator: true }, { key: "clock", label: "Developer clock…", icon: <IconClock />, onSelect: p.onOpenClock }] as MenuItem[])
-          : []),
+        { key: "changelog", label: "Changelog", icon: <IconClock />, onSelect: () => void window.open(`${REPO_URL}/pulls?q=is%3Apr+is%3Amerged`, "_blank", "noopener,noreferrer") },
+        {
+          key: "learn",
+          label: "Learn more",
+          icon: <IconExternal />,
+          submenu: [
+            { key: "l-docs", label: "Documentation", icon: <IconExternal />, onSelect: () => void window.open(`${REPO_URL}#readme`, "_blank", "noopener,noreferrer") },
+            { key: "l-keys", label: "Keyboard shortcuts", icon: <IconKeyboard />, onSelect: p.onOpenShortcuts },
+            { key: "l-issue", label: "Report an issue", icon: <IconExternal />, onSelect: () => void window.open(`${REPO_URL}/issues/new`, "_blank", "noopener,noreferrer") },
+          ],
+        },
       ],
     });
 
@@ -223,12 +329,18 @@ export function Sidebar(p: SidebarProps) {
   const chatRow = (c: Conversation, nested = false): ReactNode => {
     const active = p.view === "chat" && p.activeChatId === c.id;
     const isEditing = editing?.kind === "chat" && editing.id === c.id;
+    const canDrag = !c.pinned && !isEditing; // pinned chats live in Pinned and stay there
     return (
       <li
         key={c.id}
         className={`row ${nested ? "nested" : ""}`}
         data-active={active || undefined}
         data-menu={menu?.rowId === c.id || undefined}
+        data-dragging={dragId === c.id || undefined}
+        data-landed={landed?.chat === c.id || undefined}
+        draggable={canDrag || undefined}
+        onDragStart={canDrag ? (e) => startDrag(e, c) : undefined}
+        onDragEnd={canDrag ? endDrag : undefined}
         onContextMenu={(e) => {
           e.preventDefault();
           chatMenu(c, anchorFromPoint(e.clientX, e.clientY));
@@ -293,7 +405,7 @@ export function Sidebar(p: SidebarProps) {
       <>
         <nav className="sidebar rail" aria-label="Primary">
           <button type="button" className="rail-btn" onClick={p.onToggleCollapsed} disabled={p.forcedCollapsed} aria-label="Expand sidebar" title={p.forcedCollapsed ? "Window too narrow to expand" : `Expand sidebar (${MOD}+B)`}>
-            <Avatar text="M" size={24} tone="accent" />
+            <WsAvatar size={24} />
           </button>
           <button type="button" className="rail-btn" onClick={p.onOpenPalette} aria-label="Search" title={`Search (${MOD}+K)`}>
             <IconSearch />
@@ -306,7 +418,7 @@ export function Sidebar(p: SidebarProps) {
           ))}
           <div className="rail-spacer" />
           <button type="button" className="rail-btn" onClick={userMenu} aria-label={`Account: ${p.userName}`} aria-haspopup="menu" title={p.userName}>
-            <Avatar text={initials(p.userName)} size={24} />
+            <UserAvatar name={p.userName} size={24} />
           </button>
         </nav>
         {menuEl}
@@ -320,8 +432,8 @@ export function Sidebar(p: SidebarProps) {
       <aside className="sidebar" aria-label="Sidebar">
         <div className="sb-head">
           <button type="button" className="ws-btn" onClick={workspaceMenu} aria-haspopup="menu" aria-label="Workspace menu">
-            <Avatar text="M" size={20} tone="accent" />
-            <span className="ws-name">Minimi</span>
+            <WsAvatar size={20} />
+            <WsName />
             <IconChevronDown size={14} />
           </button>
           <button type="button" className="icon-btn" onClick={p.onToggleCollapsed} aria-label="Collapse sidebar" title={`Collapse sidebar (${MOD}+B)`}>
@@ -384,7 +496,15 @@ export function Sidebar(p: SidebarProps) {
                 const kids = byProject.get(pr.id) ?? [];
                 const isEditing = editing?.kind === "project" && editing.id === pr.id;
                 return (
-                  <li key={pr.id} className="proj">
+                  <li
+                    key={pr.id}
+                    className="proj"
+                    data-drop={dropTarget === pr.id || undefined}
+                    data-landed={(landed?.project === pr.id) || undefined}
+                    onDragOver={(e) => overProject(e, pr.id)}
+                    onDragLeave={(e) => leaveTarget(e, pr.id)}
+                    onDrop={(e) => dropOn(e, pr.id)}
+                  >
                     <div className="row" data-menu={menu?.rowId === pr.id || undefined} onContextMenu={(e) => { e.preventDefault(); projectMenu(pr, anchorFromPoint(e.clientX, e.clientY)); }}>
                       {isEditing ? (
                         editRow("project", pr.id, pr.name)
@@ -394,7 +514,7 @@ export function Sidebar(p: SidebarProps) {
                             <span className="chev" data-open={open}>
                               <IconChevronRight size={12} />
                             </span>
-                            <IconFolder size={14} />
+                            <FolderIcon color={pr.color} size={16} className="proj-ico" />
                             <span className="row-text">{pr.name}</span>
                             <span className="row-count">{kids.length || ""}</span>
                           </button>
@@ -416,7 +536,14 @@ export function Sidebar(p: SidebarProps) {
             </ul>
           </section>
 
-          <section aria-label="Chats">
+          <section
+            aria-label="Chats"
+            className="sb-chats"
+            data-drop={dropTarget === "loose" || undefined}
+            onDragOver={overLoose}
+            onDragLeave={(e) => leaveTarget(e, "loose")}
+            onDrop={(e) => dropOn(e, null)}
+          >
             <div className="sb-title-row">
               <h3 className="sb-title">Chats</h3>
               <button type="button" className="icon-btn sm" onClick={p.onNewChat} aria-label="New chat" title={`New chat (${MOD}⇧O)`}>
@@ -433,7 +560,7 @@ export function Sidebar(p: SidebarProps) {
 
         <div className="sb-foot">
           <button type="button" className="user-btn" onClick={userMenu} aria-haspopup="menu" aria-label={`Account menu for ${p.userName}`}>
-            <Avatar text={initials(p.userName)} size={22} />
+            <UserAvatar name={p.userName} size={22} />
             <span className="user-name">{p.userName}</span>
             <IconChevronDown size={14} />
           </button>
@@ -498,4 +625,20 @@ function NewProjectInput({ onDone }: { onDone: (name: string | null) => void }) 
       onBlur={(e) => finish(e.currentTarget.value)}
     />
   );
+}
+
+
+/* Workspace and profile identity set in Settings (General / Profile); kept in localStorage and synced live. */
+function WsAvatar({ size }: { size: number }) {
+  const [name] = useStored<string>("minimi.workspace", "Minimi");
+  const [icon] = useStored<string>("minimi.wsicon", "");
+  return <Avatar text={(name.trim()[0] ?? "M").toUpperCase()} size={size} tone="accent" src={icon || undefined} />;
+}
+function WsName() {
+  const [name] = useStored<string>("minimi.workspace", "Minimi");
+  return <span className="ws-name">{name || "Minimi"}</span>;
+}
+function UserAvatar({ name, size, tone }: { name: string; size: number; tone?: "accent" | "neutral" }) {
+  const [src] = useStored<string>("minimi.avatar", "");
+  return <Avatar text={initials(name)} size={size} tone={tone} src={src || undefined} />;
 }
