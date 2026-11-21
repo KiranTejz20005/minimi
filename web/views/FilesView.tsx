@@ -1,19 +1,48 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { api, type AttachmentRef, type FileRow, type Project } from "../api";
-import { IconChat, IconDownload, IconFile, IconFolder, IconGrid, IconList, IconPlus, IconSearch, IconTrash, IconUpload, IconX } from "../shell/icons";
+import { IconChat, IconDownload, IconFile, IconFolder, IconGrid, IconList, IconPlus, IconSearch, IconTrash, IconUpload } from "../shell/icons";
 import { useToast } from "../shell/toast";
 import { ConfirmDialog, Dialog, Empty, Spinner } from "../shell/ui";
-import { ContextMenu, Loading, Skeleton, TreeView, type TreeNode } from "../ui";
+import { ContextMenu, Loading, Skeleton } from "../ui";
 import { SideFolder } from "../ui/SideFolder";
 import { errMsg, fmtBytes, relTime, useStored } from "../shell/util";
 
+/* Callers: App.tsx Files route. User: folders end to end (create/rename/delete, upload into a folder,
+   move files, detail page, filters/sort), document-style cards like the reference screens. */
+
 const KIND_LABEL: Record<string, string> = { MD: "MD", CSV: "CSV", JSON: "JSON", CODE: "CODE", TXT: "TXT" };
+const KIND_NAME: Record<string, string> = { MD: "Markdown", CSV: "Spreadsheet", JSON: "JSON", CODE: "Code", TXT: "Text" };
+const ACCEPT = "text/*,.md,.csv,.json,.ts,.tsx,.js,.jsx,.py,.go,.rs,.java,.html,.css,.sql,.sh,.yml,.yaml,.xml,.txt,.log";
+
+type FolderFilter = "all" | "with" | "empty";
+type FolderSort = "recent" | "name" | "files";
 
 function Badge({ kind }: { kind: string }) {
   return (
     <span className="file-badge" data-kind={kind}>
       {KIND_LABEL[kind] ?? kind}
     </span>
+  );
+}
+
+/** Document-style card (page glyph with a type badge) shared by the home grid and the folder page. */
+function FileCard({ f, onOpen }: { f: FileRow; onOpen: () => void }) {
+  return (
+    <button type="button" className="file-card" onClick={onOpen}>
+      <div className="file-thumb">
+        <span className="file-page" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+          <i />
+        </span>
+        <Badge kind={f.kind} />
+      </div>
+      <strong title={f.name}>{f.name}</strong>
+      <small>
+        {KIND_NAME[f.kind] ?? f.kind} · {fmtBytes(f.size)} · {relTime(f.created_at)}
+      </small>
+    </button>
   );
 }
 
@@ -30,14 +59,20 @@ export function FilesView({
 }) {
   const toast = useToast();
   const [files, setFiles] = useState<FileRow[] | null>(null);
-  const [folderFilter, setFolderFilter] = useState<"all" | "with" | "empty">("all");
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [folderFilter, setFolderFilter] = useState<FolderFilter>("all");
+  const [folderSort, setFolderSort] = useStored<FolderSort>("minimi.files.sort", "recent");
   const [folderQuery, setFolderQuery] = useState("");
   const [fileQuery, setFileQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
   const [layout, setLayout] = useStored<string>("minimi.files.layout", "grid");
-  const [selectedProject, setSelectedProject] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   const [preview, setPreview] = useState<FileRow | null>(null);
   const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState("");
+  const [renaming, setRenaming] = useState<Project | null>(null);
+  const [deleting, setDeleting] = useState<Project | null>(null);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -45,37 +80,43 @@ export function FilesView({
   const load = useCallback(async () => {
     try {
       setFiles((await api.listFiles()).files);
+      setLoadErr(null);
     } catch (e) {
-      toast(`Couldn't load files: ${errMsg(e)}`, "error");
+      setLoadErr(errMsg(e));
       setFiles((f) => f ?? []);
     }
-  }, [toast]);
+  }, []);
   useEffect(() => void load(), [load]);
 
-  // The selected folder may be deleted from the sidebar meanwhile.
+  const folder = projects.find((p) => p.id === openId) ?? null;
+  // The open folder may be deleted from the sidebar meanwhile.
   useEffect(() => {
-    if (selectedProject && !projects.some((p) => p.id === selectedProject)) setSelectedProject(null);
-  }, [projects, selectedProject]);
+    if (openId && !projects.some((p) => p.id === openId)) setOpenId(null);
+  }, [projects, openId]);
 
-  const shownProjects = useMemo(
-    () =>
-      projects.filter((p) => {
-        if (folderQuery && !p.name.toLowerCase().includes(folderQuery.toLowerCase())) return false;
-        if (folderFilter === "with") return p.file_count > 0;
-        if (folderFilter === "empty") return p.file_count === 0;
-        return true;
-      }),
-    [projects, folderQuery, folderFilter],
-  );
+  const shownFolders = useMemo(() => {
+    const list = projects.filter((p) => {
+      if (folderQuery && !p.name.toLowerCase().includes(folderQuery.toLowerCase())) return false;
+      if (folderFilter === "with") return p.file_count > 0;
+      if (folderFilter === "empty") return p.file_count === 0;
+      return true;
+    });
+    return [...list].sort((a, b) =>
+      folderSort === "name" ? a.name.localeCompare(b.name) : folderSort === "files" ? b.file_count - a.file_count : b.created_at.localeCompare(a.created_at),
+    );
+  }, [projects, folderQuery, folderFilter, folderSort]);
+
+  const kinds = useMemo(() => [...new Set((files ?? []).map((f) => f.kind))].sort(), [files]);
 
   const shownFiles = useMemo(
     () =>
       (files ?? []).filter((f) => {
-        if (selectedProject && f.project_id !== selectedProject) return false;
+        if (openId && f.project_id !== openId) return false;
+        if (typeFilter !== "all" && f.kind !== typeFilter) return false;
         if (fileQuery && !f.name.toLowerCase().includes(fileQuery.toLowerCase())) return false;
         return true;
       }),
-    [files, selectedProject, fileQuery],
+    [files, openId, typeFilter, fileQuery],
   );
 
   const upload = async (list: FileList | File[]) => {
@@ -87,7 +128,7 @@ export function FilesView({
       try {
         if (f.size > 500_000) throw new Error("larger than 500 KB");
         const content = await f.text();
-        await api.uploadFile({ name: f.name, mime: f.type || undefined, content });
+        await api.uploadFile({ name: f.name, mime: f.type || undefined, content, projectId: openId ?? undefined });
         ok++;
       } catch (e) {
         toast(`${f.name}: ${errMsg(e)}`, "error");
@@ -108,50 +149,100 @@ export function FilesView({
   };
 
   const createFolder = async () => {
-    const n = newName.trim();
-    if (!n) return;
+    const n = name.trim();
+    if (!n || busy) return;
+    setBusy(true);
     const id = await onCreateProject(n);
+    setBusy(false);
     if (id) {
       setCreating(false);
-      setNewName("");
+      setName("");
       toast(`Folder “${n}” created`, "success");
     }
   };
 
-  const selected = projects.find((p) => p.id === selectedProject);
-
-  const fileTree = useMemo((): TreeNode[] => {
-    if (!files) return [];
-    const unfiled = files.filter((f) => !f.project_id);
-    const nodes: TreeNode[] = shownProjects.map((p) => ({
-      id: `proj:${p.id}`,
-      label: p.name,
-      icon: <IconFolder size={16} />,
-      meta: p.file_count,
-      children: files
-        .filter((f) => f.project_id === p.id)
-        .map((f) => ({ id: `file:${f.id}`, label: f.name, icon: <IconFile size={16} />, meta: f.kind })),
-    }));
-    if (unfiled.length) {
-      nodes.push({
-        id: "proj:unfiled",
-        label: "Not in a folder",
-        icon: <IconFile size={16} />,
-        children: unfiled.map((f) => ({ id: `file:${f.id}`, label: f.name, icon: <IconFile size={16} />, meta: f.kind })),
-      });
-    }
-    return nodes;
-  }, [files, shownProjects]);
-
-  const onTreeSelect = (id: string) => {
-    if (id.startsWith("file:")) {
-      const fid = id.slice(5);
-      const f = files?.find((x) => x.id === fid);
-      if (f) setPreview(f);
-    } else if (id.startsWith("proj:") && id !== "proj:unfiled") {
-      setSelectedProject(id.slice(5));
+  const renameFolder = async () => {
+    const n = name.trim();
+    if (!renaming || !n || busy) return;
+    setBusy(true);
+    try {
+      await api.renameProject(renaming.id, n);
+      toast("Folder renamed", "success");
+      setRenaming(null);
+      onChanged();
+      void load();
+    } catch (e) {
+      toast(`Couldn't rename: ${errMsg(e)}`, "error");
+    } finally {
+      setBusy(false);
     }
   };
+
+  const deleteFolder = async () => {
+    if (!deleting || busy) return;
+    setBusy(true);
+    try {
+      await api.deleteProject(deleting.id);
+      toast(`Folder “${deleting.name}” deleted. Its files are kept.`, "success");
+      if (openId === deleting.id) setOpenId(null);
+      setDeleting(null);
+      onChanged();
+      void load();
+    } catch (e) {
+      toast(`Couldn't delete: ${errMsg(e)}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startRename = (p: Project) => {
+    setName(p.name);
+    setRenaming(p);
+  };
+
+  const fileInput = (
+    <input
+      ref={inputRef}
+      type="file"
+      multiple
+      hidden
+      accept={ACCEPT}
+      onChange={(e) => {
+        if (e.target.files) void upload(e.target.files);
+        e.target.value = "";
+      }}
+    />
+  );
+
+  const filesBody =
+    files === null ? (
+      <Loading label="Loading files" className="files-grid-loading">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Skeleton key={i} height={150} radius={10} />
+        ))}
+      </Loading>
+    ) : loadErr && files.length === 0 ? (
+      <Empty icon={<IconFile size={22} />} title="Couldn't load files">
+        {loadErr}{" "}
+        <button type="button" className="btn sm" onClick={() => void load()}>
+          Retry
+        </button>
+      </Empty>
+    ) : shownFiles.length ? (
+      <div className="files-grid">
+        {shownFiles.map((f) => (
+          <FileCard key={f.id} f={f} onOpen={() => setPreview(f)} />
+        ))}
+      </div>
+    ) : (
+      <Empty icon={<IconFile size={22} />} title={files.length && !openId ? "No files match" : openId ? "This folder is empty" : "No files yet"}>
+        {files.length && !openId
+          ? "Clear the filter or search to see all files."
+          : openId
+            ? "Upload files here, or drop them anywhere on this page."
+            : "Attach text files in a chat, or drop them here to upload."}
+      </Empty>
+    );
 
   return (
     <div
@@ -169,160 +260,197 @@ export function FilesView({
       onDrop={onDrop}
     >
       <div className="view-inner">
-        <header className="view-head">
-          <h1>Files</h1>
-          <p>See files you attached in chats and manage the folders (projects) they live in.</p>
-        </header>
-
-        <section aria-labelledby="folders-h">
-          <div className="section-bar">
-            <h2 id="folders-h" className="eyebrow">
-              Folders <span>{projects.length}</span>
-            </h2>
-          </div>
-          <div className="toolbar">
-            <div className="seg" role="group" aria-label="Filter folders">
-              {(["all", "with", "empty"] as const).map((k) => (
-                <button key={k} type="button" aria-pressed={folderFilter === k} onClick={() => setFolderFilter(k)}>
-                  {k === "all" ? "All" : k === "with" ? "With files" : "Empty"}
-                </button>
-              ))}
-            </div>
-            <span className="grow" />
-            <div className="seg icons" role="group" aria-label="Layout">
-              <button type="button" aria-pressed={layout === "grid"} aria-label="Grid view" onClick={() => setLayout("grid")}>
-                <IconGrid size={14} />
+        {folder ? (
+          <>
+            <nav className="crumbs files-crumbs" aria-label="Breadcrumb">
+              <button type="button" className="crumb-link" onClick={() => setOpenId(null)}>
+                Files
               </button>
-              <button type="button" aria-pressed={layout === "list"} aria-label="List view" onClick={() => setLayout("list")}>
-                <IconList size={14} />
-              </button>
-            </div>
-            <label className="search-input">
-              <IconSearch size={14} />
-              <input name="folder-search" value={folderQuery} onChange={(e) => setFolderQuery(e.target.value)} placeholder="Search folders…" aria-label="Search folders" />
-            </label>
-            <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
-              <IconPlus size={14} /> Create folder
+              <span>/</span>
+              <strong>{folder.name}</strong>
+            </nav>
+            <button type="button" className="crumb-back" onClick={() => setOpenId(null)}>
+              ← Files
             </button>
-          </div>
-
-          {shownProjects.length ? (
-            <div className="folders" data-layout={layout}>
-              {shownProjects.map((p) => (
-                <ContextMenu
-                  key={p.id}
-                  aria-label={`Actions for ${p.name}`}
-                  items={[
-                    {
-                      label: "Open folder",
-                      onSelect: () => setSelectedProject(selectedProject === p.id ? null : p.id),
-                    },
-                    {
-                      label: "Clear filter",
-                      disabled: selectedProject !== p.id,
-                      onSelect: () => setSelectedProject(null),
-                    },
-                  ]}
-                >
-                  <button type="button" className="folder-card" aria-pressed={selectedProject === p.id} onClick={() => setSelectedProject(selectedProject === p.id ? null : p.id)}>
-                    <span className="folder-ico">
-                      <IconFolder size={22} />
-                    </span>
-                    <span className="folder-text">
-                      <strong>{p.name}</strong>
-                      <small>
-                        {p.chat_count} {p.chat_count === 1 ? "chat" : "chats"} · {p.file_count} {p.file_count === 1 ? "file" : "files"}
-                      </small>
-                    </span>
-                  </button>
-                </ContextMenu>
-              ))}
-            </div>
-          ) : (
-            <Empty icon={<IconFolder size={22} />} title={projects.length ? "No folders match" : "No folders yet"}>
-              {!projects.length && <SideFolder className="files-empty-art" />}
-              {projects.length ? "Try a different filter or search." : "Folders are projects — create one to group related chats and their files."}
-            </Empty>
-          )}
-
-          {files !== null && fileTree.length > 0 && (
-            <TreeView items={fileTree} aria-label="Projects and files" className="files-tree" onSelect={onTreeSelect} defaultExpanded={shownProjects.slice(0, 3).map((p) => `proj:${p.id}`)} />
-          )}
-        </section>
-
-        <section aria-labelledby="files-h">
-          <div className="section-bar">
-            <h2 id="files-h" className="eyebrow">
-              Recent files <span>{shownFiles.length}</span>
-            </h2>
-            {selected && (
-              <button type="button" className="chip" onClick={() => setSelectedProject(null)} aria-label={`Clear folder filter ${selected.name}`}>
-                <IconFolder size={12} /> {selected.name} <IconX size={12} />
+            <header className="folder-head">
+              <h1>
+                <span className="folder-ico">
+                  <IconFolder size={24} />
+                </span>
+                {folder.name}
+              </h1>
+              <span className="grow" />
+              <button type="button" className="btn" onClick={() => startRename(folder)}>
+                Rename
               </button>
+              <button type="button" className="btn btn-danger-ghost" onClick={() => setDeleting(folder)}>
+                <IconTrash size={14} /> Delete
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => inputRef.current?.click()} disabled={uploading}>
+                <IconUpload size={14} /> {uploading ? "Uploading…" : "Upload files"}
+              </button>
+              {fileInput}
+            </header>
+            <p className="small muted">
+              {folder.file_count} {folder.file_count === 1 ? "file" : "files"} · {folder.chat_count} {folder.chat_count === 1 ? "chat" : "chats"} · created {relTime(folder.created_at)}
+            </p>
+            {files !== null && files.some((f) => f.project_id === folder.id) && (
+              <div className="toolbar">
+                <span className="grow" />
+                <label className="search-input">
+                  <IconSearch size={14} />
+                  <input name="file-search" value={fileQuery} onChange={(e) => setFileQuery(e.target.value)} placeholder="Search files…" aria-label="Search files" />
+                </label>
+              </div>
             )}
-          </div>
-          <div className="toolbar">
-            <span className="grow" />
-            <label className="search-input">
-              <IconSearch size={14} />
-              <input name="file-search" value={fileQuery} onChange={(e) => setFileQuery(e.target.value)} placeholder="Search files…" aria-label="Search files" />
-            </label>
-            <input ref={inputRef} type="file" multiple hidden accept="text/*,.md,.csv,.json,.ts,.tsx,.js,.jsx,.py,.go,.rs,.java,.html,.css,.sql,.sh,.yml,.yaml,.xml,.txt,.log" onChange={(e) => {
-              if (e.target.files) void upload(e.target.files);
-              e.target.value = "";
-            }} />
-            <button type="button" className="btn" onClick={() => inputRef.current?.click()} disabled={uploading}>
-              <IconUpload size={14} /> {uploading ? "Uploading…" : "Upload file"}
-            </button>
-          </div>
+            {filesBody}
+          </>
+        ) : (
+          <>
+            <header className="view-head">
+              <h1>Files</h1>
+              <p>See files you recently used in chats and manage the folders they are saved in.</p>
+            </header>
 
-          {files === null ? (
-            <Loading label="Loading files" className="files-grid-loading">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} height={140} radius={10} />
-              ))}
-            </Loading>
-          ) : shownFiles.length ? (
-            <div className="files-grid">
-              {shownFiles.map((f) => (
-                <button key={f.id} type="button" className="file-card" onClick={() => setPreview(f)}>
-                  <div className="file-thumb">
-                    <IconFile size={34} />
-                    <Badge kind={f.kind} />
-                  </div>
-                  <strong title={f.name}>{f.name}</strong>
-                  <small>
-                    {f.kind} · {fmtBytes(f.size)} · {f.conversation_title ?? "Not in a chat"}
-                  </small>
+            <section aria-labelledby="folders-h">
+              <div className="section-bar">
+                <h2 id="folders-h" className="eyebrow">
+                  Folders <span>{projects.length}</span>
+                </h2>
+              </div>
+              <div className="toolbar">
+                <div className="seg" role="group" aria-label="Filter folders">
+                  {(["all", "with", "empty"] as const).map((k) => (
+                    <button key={k} type="button" aria-pressed={folderFilter === k} onClick={() => setFolderFilter(k)}>
+                      {k === "all" ? "All" : k === "with" ? "With files" : "Empty"}
+                    </button>
+                  ))}
+                </div>
+                <span className="grow" />
+                <select className="select-sm" aria-label="Sort folders" value={folderSort} onChange={(e) => setFolderSort(e.target.value as FolderSort)}>
+                  <option value="recent">Newest</option>
+                  <option value="name">Name</option>
+                  <option value="files">Most files</option>
+                </select>
+                <div className="seg icons" role="group" aria-label="Layout">
+                  <button type="button" aria-pressed={layout === "grid"} aria-label="Grid view" onClick={() => setLayout("grid")}>
+                    <IconGrid size={14} />
+                  </button>
+                  <button type="button" aria-pressed={layout === "list"} aria-label="List view" onClick={() => setLayout("list")}>
+                    <IconList size={14} />
+                  </button>
+                </div>
+                <label className="search-input">
+                  <IconSearch size={14} />
+                  <input name="folder-search" value={folderQuery} onChange={(e) => setFolderQuery(e.target.value)} placeholder="Search folders…" aria-label="Search folders" />
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setName("");
+                    setCreating(true);
+                  }}
+                >
+                  <IconPlus size={14} /> Create folder
                 </button>
-              ))}
-            </div>
-          ) : (
-            <Empty icon={<IconFile size={22} />} title={files.length ? "No files match" : "No files yet"}>
-              {files.length ? "Clear the filter or search to see all files." : "Attach text files in a chat, or drop them here to upload."}
-            </Empty>
-          )}
-        </section>
+              </div>
+
+              {shownFolders.length ? (
+                <div className="folders" data-layout={layout}>
+                  {shownFolders.map((p) => (
+                    <ContextMenu
+                      key={p.id}
+                      aria-label={`Actions for ${p.name}`}
+                      items={[
+                        { label: "Open folder", onSelect: () => setOpenId(p.id) },
+                        { label: "Rename", onSelect: () => startRename(p) },
+                        { label: "Delete", onSelect: () => setDeleting(p) },
+                      ]}
+                    >
+                      <button type="button" className="folder-card" onClick={() => setOpenId(p.id)}>
+                        <span className="folder-ico">
+                          <IconFolder size={22} />
+                        </span>
+                        <span className="folder-text">
+                          <strong>{p.name}</strong>
+                          <small>
+                            {p.file_count} {p.file_count === 1 ? "file" : "files"} · {p.chat_count} {p.chat_count === 1 ? "chat" : "chats"}
+                          </small>
+                        </span>
+                      </button>
+                    </ContextMenu>
+                  ))}
+                </div>
+              ) : (
+                <Empty icon={<IconFolder size={22} />} title={projects.length ? "No folders match" : "No folders yet"}>
+                  {!projects.length && <SideFolder className="files-empty-art" />}
+                  {projects.length ? "Try a different filter or search." : "Create a folder to group related chats and files."}
+                </Empty>
+              )}
+            </section>
+
+            <section aria-labelledby="files-h">
+              <div className="section-bar">
+                <h2 id="files-h" className="eyebrow">
+                  Recent files <span>{shownFiles.length}</span>
+                </h2>
+              </div>
+              <div className="toolbar">
+                <div className="seg" role="group" aria-label="Filter by type">
+                  <button type="button" aria-pressed={typeFilter === "all"} onClick={() => setTypeFilter("all")}>
+                    All
+                  </button>
+                  {kinds.map((k) => (
+                    <button key={k} type="button" aria-pressed={typeFilter === k} onClick={() => setTypeFilter(k)}>
+                      {KIND_LABEL[k] ?? k}
+                    </button>
+                  ))}
+                </div>
+                <span className="grow" />
+                <label className="search-input">
+                  <IconSearch size={14} />
+                  <input name="file-search" value={fileQuery} onChange={(e) => setFileQuery(e.target.value)} placeholder="Search files…" aria-label="Search files" />
+                </label>
+                {fileInput}
+                <button type="button" className="btn" onClick={() => inputRef.current?.click()} disabled={uploading}>
+                  <IconUpload size={14} /> {uploading ? "Uploading…" : "Upload file"}
+                </button>
+              </div>
+              {filesBody}
+            </section>
+          </>
+        )}
       </div>
 
       {dragging && (
         <div className="drop-overlay" aria-hidden="true">
-          <IconUpload size={22} /> Drop text files to upload
+          <IconUpload size={22} /> Drop text files to upload{folder ? ` to ${folder.name}` : ""}
         </div>
       )}
 
       <Dialog
-        open={creating}
-        onClose={() => setCreating(false)}
-        title="Create folder"
+        open={creating || !!renaming}
+        onClose={() => {
+          setCreating(false);
+          setRenaming(null);
+        }}
+        title={renaming ? "Rename folder" : "Create folder"}
         width={380}
         footer={
           <>
-            <button type="button" className="btn" onClick={() => setCreating(false)}>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setCreating(false);
+                setRenaming(null);
+              }}
+            >
               Cancel
             </button>
-            <button type="button" className="btn btn-primary" onClick={createFolder} disabled={!newName.trim()}>
-              Create
+            <button type="button" className="btn btn-primary" onClick={() => void (renaming ? renameFolder() : createFolder())} disabled={!name.trim() || busy}>
+              {renaming ? "Save" : "Create"}
             </button>
           </>
         }
@@ -330,17 +458,37 @@ export function FilesView({
         <label className="field-label" htmlFor="folder-name">
           Folder name
         </label>
-        <input id="folder-name" className="input" value={newName} maxLength={60} data-autofocus onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void createFolder()} />
+        <input
+          id="folder-name"
+          className="input"
+          value={name}
+          maxLength={60}
+          data-autofocus
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && void (renaming ? renameFolder() : createFolder())}
+        />
       </Dialog>
+
+      <ConfirmDialog
+        open={!!deleting}
+        danger
+        busy={busy}
+        title="Delete folder?"
+        message={<>“{deleting?.name}” will be removed. Its chats and files are kept, just no longer in a folder.</>}
+        confirmLabel="Delete"
+        onCancel={() => setDeleting(null)}
+        onConfirm={() => void deleteFolder()}
+      />
 
       <FilePreview
         file={preview}
+        projects={projects}
         onClose={() => setPreview(null)}
         onOpenChat={(id) => {
           setPreview(null);
           onOpenChat(id);
         }}
-        onDeleted={() => {
+        onChanged={() => {
           setPreview(null);
           void load();
           onChanged();
@@ -350,14 +498,28 @@ export function FilesView({
   );
 }
 
-function FilePreview({ file, onClose, onOpenChat, onDeleted }: { file: FileRow | null; onClose: () => void; onOpenChat: (id: string) => void; onDeleted: () => void }) {
+function FilePreview({
+  file,
+  projects,
+  onClose,
+  onOpenChat,
+  onChanged,
+}: {
+  file: FileRow | null;
+  projects: Project[];
+  onClose: () => void;
+  onOpenChat: (id: string) => void;
+  onChanged: () => void;
+}) {
   const toast = useToast();
   const [data, setData] = useState<(AttachmentRef & { content: string }) | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const [folderId, setFolderId] = useState("");
 
   useEffect(() => {
     setData(null);
     setConfirm(false);
+    setFolderId(file?.project_id ?? "");
     if (!file) return;
     let live = true;
     api
@@ -385,12 +547,25 @@ function FilePreview({ file, onClose, onOpenChat, onDeleted }: { file: FileRow |
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
+  const move = async (id: string) => {
+    if (!file) return;
+    setFolderId(id);
+    try {
+      await api.moveFile(file.id, id || null);
+      toast(id ? "Moved to folder" : "Removed from folder", "success");
+      onChanged();
+    } catch (e) {
+      toast(`Couldn't move: ${errMsg(e)}`, "error");
+      setFolderId(file.project_id ?? "");
+    }
+  };
+
   const del = async () => {
     if (!file) return;
     try {
       await api.deleteFile(file.id);
       toast("File deleted", "success");
-      onDeleted();
+      onChanged();
     } catch (e) {
       toast(`Couldn't delete: ${errMsg(e)}`, "error");
       setConfirm(false);
@@ -422,14 +597,20 @@ function FilePreview({ file, onClose, onOpenChat, onDeleted }: { file: FileRow |
           </>
         }
       >
-        <p className="small muted">
-          {file && (
-            <>
-              {file.kind} · {fmtBytes(file.size)} · added {relTime(file.created_at)}
-              {file.project_name ? ` · in ${file.project_name}` : ""}
-            </>
-          )}
-        </p>
+        <div className="preview-meta">
+          <p className="small muted">{file && `${file.kind} · ${fmtBytes(file.size)} · added ${relTime(file.created_at)}`}</p>
+          <label className="small muted preview-folder">
+            Folder
+            <select className="select-sm" value={folderId} onChange={(e) => void move(e.target.value)} aria-label="Move to folder">
+              <option value="">None</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         {data ? <pre className="file-pre">{data.content}</pre> : <div className="loading-row"><Spinner /></div>}
       </Dialog>
       <ConfirmDialog open={!!file && confirm} danger title="Delete file?" message={<>“{file?.name}” will be permanently deleted.</>} confirmLabel="Delete" onCancel={() => setConfirm(false)} onConfirm={() => void del()} />
