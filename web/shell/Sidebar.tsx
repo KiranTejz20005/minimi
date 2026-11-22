@@ -11,7 +11,6 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconFolder,
-  IconKeyboard,
   IconMonitor,
   IconMoon,
   IconMore,
@@ -234,28 +233,6 @@ export function Sidebar(p: SidebarProps) {
     });
   };
 
-  const workspaceMenu = (e: MouseEvent<HTMLButtonElement>) =>
-    setMenu({
-      anchor: anchorFromEvent(e),
-      label: "Workspace",
-      width: 220,
-      items: [
-        { key: "landing", label: "Landing page", icon: <IconMonitor />, onSelect: () => { window.location.href = "/"; } },
-        { key: "np", label: "New project", icon: <IconPlus />, onSelect: p.onNewProject },
-        { key: "int", label: "Integrations", icon: <IconPlug />, onSelect: p.onOpenIntegrations },
-        { key: "sc", label: "Keyboard shortcuts", icon: <IconKeyboard />, onSelect: p.onOpenShortcuts },
-        { key: "s1", separator: true },
-        { key: "th", heading: true, label: "Theme" },
-        ...(["dark", "light", "system"] as ThemePref[]).map((t) => ({
-          key: `t-${t}`,
-          label: t[0]!.toUpperCase() + t.slice(1),
-          icon: t === "dark" ? <IconMoon /> : t === "light" ? <IconSun /> : <IconMonitor />,
-          checked: p.theme === t,
-          onSelect: () => p.onSetTheme(t),
-        })),
-      ],
-    });
-
   const userMenu = (e: MouseEvent<HTMLButtonElement>) =>
     setMenu({
       anchor: anchorFromEvent(e),
@@ -431,11 +408,10 @@ export function Sidebar(p: SidebarProps) {
     <>
       <aside className="sidebar" aria-label="Sidebar">
         <div className="sb-head">
-          <button type="button" className="ws-btn" onClick={workspaceMenu} aria-haspopup="menu" aria-label="Workspace menu">
+          <div className="ws-brand">
             <WsAvatar size={20} />
             <WsName />
-            <IconChevronDown size={14} />
-          </button>
+          </div>
           <button type="button" className="icon-btn" onClick={p.onToggleCollapsed} aria-label="Collapse sidebar" title={`Collapse sidebar (${MOD}+B)`}>
             <IconSidebar />
           </button>

@@ -81,13 +81,11 @@
 /* ── Sidebar ────────────────────────────────────────────────── */
 .sidebar { width: 264px; flex: none; display: flex; flex-direction: column; min-height: 0; padding: 8px 8px 8px 8px; gap: 6px; background: var(--sidebar); }
 .sb-head { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
-.ws-btn {
-  display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 6px; border: 0; background: none; border-radius: var(--radius-sm);
-  font-weight: 600; color: var(--text); transition: background-color 140ms var(--ease-out);
+.ws-brand {
+  display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 6px;
+  font-weight: 600; color: var(--text);
 }
 .ws-name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ws-btn svg { color: var(--muted); }
-@media (hover: hover) { .ws-btn:hover { background: var(--surface-2); } }
 .search-field {
   display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: var(--radius-sm);
   border: 1px solid var(--border); background: var(--surface); color: var(--muted); text-align: left;
