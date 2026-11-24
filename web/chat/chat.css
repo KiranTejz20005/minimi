@@ -29,6 +29,12 @@
 .cv .icon-btn { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); transition: background-color 140ms ease, color 140ms ease, transform 140ms var(--ease-out); }
 .cv .icon-btn:active:not(:disabled) { transform: scale(0.95); }
 .cv .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+/* Run in progress while Run details is closed: a small dot on the toggle */
+.cv .cv__ptoggle { position: relative; }
+.cv .cv__ptoggle[data-busy]:not([aria-pressed="true"])::after {
+  content: ""; position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 2px var(--bg);
+}
 .cv .icon-btn[aria-pressed="true"] { color: var(--text); background: var(--surface-3); }
 @media (hover: hover) and (pointer: fine) {
   .cv .icon-btn:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }

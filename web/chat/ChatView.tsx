@@ -106,7 +106,7 @@ export function ChatView(props: ChatViewProps) {
     writeLS(LS.model, s.model);
     writeLS(LS.approvalMode, s.approvalMode);
   }, []);
-  const [panelOpen, setPanelOpen] = useState(() => readLS(LS.panel) !== "0");
+  const [panelOpen, setPanelOpen] = useState(() => readLS(LS.panel) === "1");
   const togglePanel = (v: boolean) => {
     setPanelOpen(v);
     writeLS(LS.panel, v ? "1" : "0");
@@ -299,8 +299,9 @@ export function ChatView(props: ChatViewProps) {
             <button
               type="button"
               className="icon-btn cv__ptoggle"
-              aria-label={panelOpen ? "Hide run details" : "Show run details"}
+              aria-label={panelOpen ? "Hide run details" : streaming ? "Show run details (run in progress)" : "Show run details"}
               aria-pressed={panelOpen}
+              data-busy={streaming || undefined}
               onClick={() => togglePanel(!panelOpen)}
             >
               <PanelRight />
