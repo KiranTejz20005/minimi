@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { serve } from "@hono/node-server";
-import { Hono } from "hono";
+import { Hono, type Context, type Next } from "hono";
 import { streamSSE } from "hono/streaming";
 import { secureHeaders } from "hono/secure-headers";
 import { bodyLimit } from "hono/body-limit";
@@ -74,34 +74,69 @@ if (corsOrigins.length) {
     }),
   );
 }
-app.use("/api/*", bodyLimit({ maxSize: 2 * 1024 * 1024, onError: (c) => c.json({ error: "Request too large" }, 413) }));
+// CSRF + DNS-rebinding guard. The API has no per-request secret when ACCESS_TOKEN is unset, so a web page the user visits
+// could otherwise POST to it (simple cross-site requests need no preflight) or rebind its hostname to 127.0.0.1.
+const loopbackBind = ["127.0.0.1", "localhost", "::1"].includes(cfg.HOST);
+app.use("/api/*", async (c, next) => {
+  const host = (c.req.header("host") ?? "").toLowerCase();
+  if (loopbackBind && cfg.TRUST_PROXY !== "1" && !/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host)) {
+    return c.json({ error: "Unexpected Host header" }, 403);
+  }
+  const m = c.req.method;
+  if (m !== "GET" && m !== "HEAD" && m !== "OPTIONS") {
+    const origin = c.req.header("origin");
+    if (origin) {
+      let ok = corsOrigins.includes(origin.replace(/\/+$/, ""));
+      try {
+        ok = ok || new URL(origin).host.toLowerCase() === host;
+      } catch {
+        /* unparsable Origin: not ok */
+      }
+      if (!ok) return c.json({ error: "Cross-origin request blocked" }, 403);
+    } else if (c.req.header("sec-fetch-site") === "cross-site") {
+      return c.json({ error: "Cross-origin request blocked" }, 403);
+    }
+  }
+  return next();
+});
+
+// Binary uploads (PDF/XLSX arrive base64-encoded in JSON) get a larger cap on that one route only.
+const tooLarge = (c: import("hono").Context) => c.json({ error: "Request too large" }, 413);
+const smallBody = bodyLimit({ maxSize: 2 * 1024 * 1024, onError: tooLarge });
+const uploadBody = bodyLimit({ maxSize: 14 * 1024 * 1024, onError: tooLarge });
+app.use("/api/*", (c, next) => (c.req.method === "POST" && c.req.path === "/api/attachments" ? uploadBody(c, next) : smallBody(c, next)));
 
 if (cfg.ACCESS_TOKEN?.trim()) {
   const auth = basicAuth({ username: cfg.ACCESS_USER, password: cfg.ACCESS_TOKEN.trim(), realm: "Minimi" });
   app.use("*", async (c, next) => (c.req.path === "/health" ? next() : auth(c, next)));
-} else if (cfg.isProduction) {
-  console.warn("[warn] ACCESS_TOKEN is not set: the app is publicly accessible. Set it before exposing this server.");
+} else if (cfg.isProduction || !["127.0.0.1", "localhost", "::1"].includes(cfg.HOST)) {
+  // Agent tools can read uploaded files, fetch URLs and write memories: an open server exposes all of that.
+  console.warn(`[warn] ACCESS_TOKEN is not set and the server listens on ${cfg.HOST}: the app is accessible without a password. Set ACCESS_TOKEN before exposing this server.`);
 }
 
 // Per-IP rate limit on the expensive endpoint (in-memory; one process).
 const hits = new Map<string, number[]>();
-app.use("/api/chat", async (c, next) => {
+const rateLimited = async (c: Context, next: Next) => {
   const limit = cfg.RATE_LIMIT_PER_MIN;
   if (limit > 0 && c.req.method === "POST") {
-    const fwd = cfg.TRUST_PROXY === "1" ? c.req.header("x-forwarded-for")?.split(",")[0]?.trim() : undefined;
+    // Last hop = the one our own proxy appended; the first entries are client-controlled and spoofable.
+    const fwd = cfg.TRUST_PROXY === "1" ? c.req.header("x-forwarded-for")?.split(",").pop()?.trim() : undefined;
     const ip = fwd || (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket?.remoteAddress || "local";
     const now = Date.now();
-    const recent = (hits.get(ip) ?? []).filter((t) => now - t < 60_000);
+    const key = `${ip}|${c.req.path}`; // separate budget per route
+    const recent = (hits.get(key) ?? []).filter((t) => now - t < 60_000);
     if (recent.length >= limit) {
       c.header("Retry-After", "30");
       return c.json({ error: "Too many requests — please slow down and try again shortly." }, 429);
     }
     recent.push(now);
-    hits.set(ip, recent);
+    hits.set(key, recent);
     if (hits.size > 5000) for (const [k, v] of hits) if (!v.some((t) => now - t < 60_000)) hits.delete(k);
   }
   return next();
-});
+};
+// The chat endpoint and the other routes that cost money or CPU (LLM/search calls, file parsing).
+for (const p of ["/api/chat", "/api/attachments", "/api/suggest", "/api/integrations/test"]) app.use(p, rateLimited);
 
 app.onError((err, c) => {
   if (err instanceof HTTPException) return err.getResponse(); // e.g. 401 from basic auth
@@ -206,6 +241,7 @@ app.post("/api/chat", async (c) => {
 
 ${message}` : undefined,
           model,
+          attachmentIds,
           // Untrusted input: validated, with a safe default. `approval: true` is the pre-modes client's "ask me".
           approvalMode: parseApprovalMode(body.approvalMode ?? (body.approval === true ? "request" : undefined)),
           tz,
@@ -214,7 +250,7 @@ ${message}` : undefined,
         },
         {
           onConversation: (id) => emit("conversation", { id }),
-          // Always available; PermissionGate only prompts for SENSITIVE_TOOLS (none for read-only search/fetch).
+          // Always available; which calls need a prompt is decided per tool by PermissionGate (src/agent/permissions.ts).
           requestApproval: async (actions) => {
             const id = newId("apr");
             const list = actions.map((a) =>
