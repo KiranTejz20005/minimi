@@ -16,5 +16,16 @@ export function getDb(): DatabaseSync {
   db = new DatabaseSync(cfg.DB_PATH);
   const schema = readFileSync(join(root, "schema.sql"), "utf8");
   db.exec(schema);
+  migrate(db);
   return db;
+}
+
+/** Idempotent column additions for databases created before a column existed (CREATE IF NOT EXISTS can't add them). */
+export function migrate(d: DatabaseSync): void {
+  const addColumn = (table: string, column: string, ddl: string) => {
+    const cols = d.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (cols.length && !cols.some((c) => c.name === column)) d.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  };
+  // Extracted-document metadata for PDF/XLSX/CSV attachments: {"kind","pages","sheets":[{name,rows,cols}],"truncated"}.
+  addColumn("attachments", "meta", "TEXT");
 }

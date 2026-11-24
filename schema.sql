@@ -127,3 +127,43 @@ CREATE TABLE IF NOT EXISTS feedback (
   reason     TEXT,
   created_at TEXT NOT NULL
 );
+
+-- ── Tool ecosystem (additive; safe to re-run) ───────────────────────────────
+-- Tool results kept per turn so later turns can reuse them instead of re-searching.
+CREATE TABLE IF NOT EXISTS tool_results (
+  id         TEXT PRIMARY KEY,
+  turn_id    TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
+  call_id    TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  label      TEXT,
+  input      TEXT,                      -- JSON
+  content    TEXT NOT NULL,             -- capped by the writer
+  error      TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tool_results_turn ON tool_results(turn_id);
+
+-- Facts the user explicitly asked the agent to keep (save_memory). Separate lifecycle from `claims`
+-- (derived from answers, deleted with the chat): these survive chat deletion until the user forgets them.
+CREATE TABLE IF NOT EXISTS saved_memories (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL DEFAULT 'local',
+  text       TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  turn_id    TEXT,                      -- turn that saved it (no FK: survives chat deletion)
+  deleted_at TEXT                       -- soft delete; the audit trail below stays
+);
+CREATE INDEX IF NOT EXISTS idx_saved_memories_user ON saved_memories(user_id, deleted_at);
+
+-- Audit trail for every change to saved_memories.
+CREATE TABLE IF NOT EXISTS memory_events (
+  id         TEXT PRIMARY KEY,
+  memory_id  TEXT NOT NULL,
+  action     TEXT NOT NULL CHECK (action IN ('save','update','forget')),
+  before     TEXT,
+  after      TEXT,
+  turn_id    TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_events_mem ON memory_events(memory_id);
