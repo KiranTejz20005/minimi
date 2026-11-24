@@ -2,8 +2,9 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { getClock } from "../clock.js";
+import { ToolInputError, type ToolDefinition } from "./types.js";
 
-/** Called from src/tools/registry.ts. Reads schema.sql claims+turns; no writes. No claim-lookup tool exists. User: add more tools. */
+/** Called from src/tools/registry.ts. Reads schema.sql claims+turns; no writes. */
 export const LOOKUP_CLAIMS_TOOL: Tool = {
   name: "lookup_claims",
   description:
@@ -22,6 +23,26 @@ export const LOOKUP_CLAIMS_TOOL: Tool = {
     },
     required: ["query"],
   },
+};
+
+/** Registry definition (src/tools/registry.ts). */
+export const lookupClaimsTool: ToolDefinition<{ query: string; limit?: number }> = {
+  name: "lookup_claims",
+  schema: LOOKUP_CLAIMS_TOOL,
+  effect: "read",
+  actionLabel: "Lookup claims",
+  needs: ["db"],
+  label: (raw) => (raw && typeof raw === "object" && typeof (raw as { query?: unknown }).query === "string" ? (raw as { query: string }).query : "") || "lookup claims",
+  validate: (raw) => {
+    const p = inputSchema.safeParse(raw);
+    if (!p.success) throw new ToolInputError("invalid lookup_claims input");
+    return p.data;
+  },
+  run: async (input, ctx) => {
+    const res = runLookupClaims(ctx.db, input);
+    return { content: res.xml, label: res.query, error: res.error };
+  },
+  errorContent: (_label, error) => `<claims error="${esc(error)}"/>`,
 };
 
 const inputSchema = z.object({
