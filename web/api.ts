@@ -27,7 +27,7 @@ export type ChatMessage = {
   sources: SourceRef[];
   searches: SearchRef[];
 };
-export type FileKind = "MD" | "CSV" | "JSON" | "CODE" | "TXT";
+export type FileKind = "MD" | "CSV" | "JSON" | "CODE" | "TXT" | "PDF" | "XLSX";
 export type AttachmentRef = { id: string; name: string; size: number; kind: FileKind; created_at?: string; mime?: string | null };
 export type FileRow = AttachmentRef & {
   conversation_id: string | null;
@@ -160,6 +160,9 @@ export const api = {
   moveFile: (id: string, projectId: string | null) => req<{ ok: true }>("PATCH", `/api/attachments/${id}`, { projectId }),
   uploadFile: (f: { name: string; mime?: string; content: string; conversationId?: string; projectId?: string }) =>
     req<AttachmentRef>("POST", "/api/attachments", f),
+  /** PDF / XLSX: bytes as base64. The server extracts text (pages / sheets). Errors arrive as ApiError with the server message. */
+  uploadBinary: (f: { name: string; mime?: string; contentBase64: string; conversationId?: string; projectId?: string }) =>
+    req<AttachmentRef>("POST", "/api/attachments", f),
   listFiles: () => req<{ files: FileRow[] }>("GET", "/api/attachments"),
   getFile: (id: string) => req<AttachmentRef & { content: string }>("GET", `/api/attachments/${id}`),
   deleteFile: (id: string) => req<{ ok: true }>("DELETE", `/api/attachments/${id}`),
@@ -234,11 +237,11 @@ export type StreamHandlers = {
   onApprovalRequest?: (p: {
     id: string;
     queries: string[];
-    actions?: { tool: string; label: string }[];
+    actions?: { tool: string; label: string; verb?: string }[];
   }) => void;
   onApprovalResult?: (p: { id: string; approved: boolean }) => void;
   onToolStart?: (p: { tools: { id: string; tool: string; label: string }[] }) => void;
-  onToolDone?: (p: { id: string; tool: string; label: string; ms: number; error?: string }) => void;
+  onToolDone?: (p: { id: string; tool: string; label: string; ms: number; error?: string; duplicate?: boolean }) => void;
   onToken?: (text: string) => void;
   /** Keys are citation numbers. */
   onSources?: (s: Record<string, { url: string; title: string; publishedAt?: string | null }>) => void;

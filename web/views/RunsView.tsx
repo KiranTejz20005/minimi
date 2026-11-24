@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, type RunDetail, type RunStep, type RunSummary } from "../api";
 import { approvals, usePendingApprovals, useRecentApprovals } from "../chat/approvals";
+import { approvalLineText, approvalLines, describeTool, humanizeTool, toolMeta, type ApprovalAction } from "../chat/tools";
+
+/** One readable line per action ("Fetch page: https://..."), falling back to the plain query strings. */
+const approvalSummary = (queries: string[], actions?: ApprovalAction[]) => approvalLines(queries, actions).map(approvalLineText);
 /* Callers: App Runs route. Recent approvals fix empty panel after decide. User: approved items not visible. */
 import { IconAlert, IconBell, IconCheck, IconChat, IconExternal, IconGlobe, IconRuns } from "../shell/icons";
 import { useToast } from "../shell/toast";
@@ -38,8 +42,17 @@ function describeStep(s: RunStep): Detail {
       return { stage: s.stage, label: "Reason and draft the answer", sub: `${d.steps ?? 1} model step${d.steps === 1 ? "" : "s"} · ${d.searches ?? 0} search${d.searches === 1 ? "" : "es"}`, ms: s.duration_ms, tag: "model" };
     case "citations":
       return { stage: s.stage, label: "Verify citations", sub: `${d.cited ?? 0} source${d.cited === 1 ? "" : "s"} cited`, ms: s.duration_ms, tag: "citations" };
-    default:
-      return { stage: s.stage, label: s.stage.replace(/_/g, " "), sub: "", ms: s.duration_ms };
+    default: {
+      // Any other stage (including future tool stages): humanise the name, and prefer a tool title/label when the trace carries one.
+      const tool = typeof d.tool === "string" ? d.tool : "";
+      return {
+        stage: s.stage,
+        label: tool ? toolMeta(tool).title : humanizeTool(s.stage),
+        sub: typeof d.label === "string" ? describeTool(tool, d.label) : "",
+        ms: s.duration_ms,
+        tag: tool || undefined,
+      };
+    }
   }
 }
 
@@ -121,9 +134,9 @@ export function RunsView({ selectedId, onSelect, onOpenChat }: { selectedId?: st
     () =>
       pending.map((a) => ({
         id: a.id,
-        title: a.queries[0] || "Network access",
-        detail: a.queries.join(" · "),
-        primary: "Approve",
+        title: approvalSummary(a.queries, a.actions)[0] || "Network access",
+        detail: approvalSummary(a.queries, a.actions).join(" · "),
+        primary: approvalLines(a.queries, a.actions).every((l) => l.persistent) && a.actions?.length ? "Save to memory" : "Approve",
         secondary: "Decline",
       })),
     [pending],
@@ -242,7 +255,7 @@ export function RunsView({ selectedId, onSelect, onOpenChat }: { selectedId?: st
                   {toolRows.map((q, i) => (
                     <li key={i}>
                       <span className="step-check" data-tone="green"><IconCheck size={11} /></span>
-                      <span className="act-text">web_search · {q.query}</span>
+                      <span className="act-text">{toolMeta("web_search").title} · {q.query}</span>
                       <span className="step-time">{fmtMs(q.durationMs)}</span>
                     </li>
                   ))}
@@ -292,9 +305,9 @@ export function RunsView({ selectedId, onSelect, onOpenChat }: { selectedId?: st
                     {recentApprovals.map((a) => (
                       <li key={a.id} data-status={a.status}>
                         <span className="runs-recent__status">{a.status === "approved" ? "Approved" : a.status === "declined" ? "Declined" : "Expired"}</span>
-                        <span className="runs-recent__q" title={a.queries.join(" · ")}>
-                          {a.queries[0] || "Web search"}
-                          {a.queries.length > 1 ? ` +${a.queries.length - 1}` : ""}
+                        <span className="runs-recent__q" title={approvalSummary(a.queries, a.actions).join(" · ")}>
+                          {approvalSummary(a.queries, a.actions)[0] || "Web search"}
+                          {approvalSummary(a.queries, a.actions).length > 1 ? ` +${approvalSummary(a.queries, a.actions).length - 1}` : ""}
                         </span>
                       </li>
                     ))}

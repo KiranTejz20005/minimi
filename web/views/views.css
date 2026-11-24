@@ -54,6 +54,8 @@
 .file-badge[data-kind="CSV"] { background: #10a37f; }
 .file-badge[data-kind="JSON"] { background: #d98a0b; }
 .file-badge[data-kind="CODE"] { background: #8b5cf6; }
+.file-badge[data-kind="PDF"] { background: #c4382f; }
+.file-badge[data-kind="XLSX"] { background: #1f7a4d; }
 .file-pre { margin: 12px 0 0; padding: 12px; max-height: 52vh; overflow: auto; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border); font-family: var(--mono); font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* ── Runs ───────────────────────────────────────────────────── */

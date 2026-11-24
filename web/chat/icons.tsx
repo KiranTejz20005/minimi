@@ -23,6 +23,34 @@ export const Globe = () => (
     <path d="M2 8h12M8 2c1.8 1.8 2.6 3.8 2.6 6S9.8 12.2 8 14M8 2C6.2 3.8 5.4 5.8 5.4 8S6.2 12.2 8 14" />
   </Svg>
 );
+export const Page = () => (
+  <Svg>
+    <path d="M4 2.5h5l3 3v8H4z" />
+    <path d="M9 2.5v3h3M6 8.5h4M6 11h4" />
+  </Svg>
+);
+export const Calc = () => (
+  <Svg>
+    <rect x="3.5" y="2" width="9" height="12" rx="1.5" />
+    <path d="M5.5 4.8h5M6 8h.01M8 8h.01M10 8h.01M6 10.5h.01M8 10.5h.01M10 10.5h.01" />
+  </Svg>
+);
+export const Bookmark = () => (
+  <Svg>
+    <path d="M4.5 2.5h7v11L8 11l-3.5 2.5z" />
+  </Svg>
+);
+export const Wrench = () => (
+  <Svg>
+    <path d="M10.5 2.5a3 3 0 0 0-2.7 4.1L2.8 11.6a1.4 1.4 0 0 0 2 2l5-5a3 3 0 0 0 4.1-2.7l-1.9 1.9-1.6-.4-.4-1.6z" />
+  </Svg>
+);
+export const Stop = () => (
+  <Svg>
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M6 6l4 4" />
+  </Svg>
+);
 export const Memory = () => (
   <Svg>
     <path d="M8 2.5a5.5 5.5 0 1 0 5.2 7.3" />

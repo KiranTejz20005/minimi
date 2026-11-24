@@ -5,7 +5,9 @@ export type SearchCardData = {
   /** Tool name shown on the card; defaults to web_search. Used by ToolCards + useChat. */
   tool?: string;
   query: string;
-  status: "running" | "done" | "error" | "declined";
+  status: "running" | "done" | "error" | "declined" | "stopped";
+  /** Server reused an earlier identical result instead of running the tool again. */
+  duplicate?: boolean;
   ms?: number;
   count?: number;
   cached?: boolean;
@@ -17,6 +19,8 @@ export type SearchCardData = {
 export type ApprovalData = {
   id: string;
   queries: string[];
+  /** Exact actions (verb + label) when the server sends them; `queries` stays as the plain fallback. */
+  actions?: { tool: string; label: string; verb?: string }[];
   status: "pending" | "approved" | "declined" | "expired";
   expiresAt: number;
 };

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, type SourceRef } from "../api";
 import { Close, Copy, Download, FileIcon, Spinner } from "./icons";
 import { copyText, renderMarkdown, slug } from "./markdown";
+import { isExtractedBinary } from "./attach";
 
 /** A document open in the right panel. `content` is set for inline docs (the answer); otherwise loaded by `fileId`. */
 export type DocTab = { id: string; name: string; fileId?: string; content?: string; kind?: string };
@@ -140,7 +141,8 @@ export function DocViewer({
     const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = tab.name.includes(".") ? tab.name : `${slug(tab.name)}.txt`;
+    // PDF / XLSX hold extracted text (page / sheet markers), so it is saved as .txt rather than under a binary extension.
+    a.download = isExtractedBinary(tab.name) ? `${tab.name}.txt` : tab.name.includes(".") ? tab.name : `${slug(tab.name)}.txt`;
     document.body.appendChild(a);
     a.click();
     a.remove();

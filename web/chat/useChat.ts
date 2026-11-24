@@ -9,6 +9,7 @@ import {
   type SourceRef,
 } from "../api";
 import { approvals } from "./approvals";
+import { approvalLines, approvalLineText, describeTool } from "./tools";
 import { notify } from "../shell/notify";
 import type { ChatSettings, RunInfo, SearchCardData, Toast, UiMessage } from "./types";
 
@@ -210,6 +211,14 @@ export function useChat(p: Params) {
       const updateCard = (idx: number, part: Partial<SearchCardData>) => {
         cards = cards.map((c, i) => (i === idx ? { ...c, ...part } : c));
       };
+      /** The run stopped / failed / ended: nothing may keep spinning or waiting for an answer. */
+      const endOpenWork = () => {
+        if (cards.some((c) => c.status === "running")) {
+          cards = cards.map((c) => (c.status === "running" ? { ...c, status: "stopped" as const } : c));
+          syncCards();
+        }
+        patch((m) => (m.approval?.status === "pending" ? { ...m, approval: { ...m.approval, status: "expired" } } : m));
+      };
 
       setRun({ status: "running", memory: null, batches: [], drafting: "pending", cited: 0 });
 
@@ -266,8 +275,9 @@ export function useChat(p: Params) {
             gotEvent = true;
             batch += 1;
             const b = batch;
-            for (const t of tools) {
-              cards.push({ id: t.id, tool: t.tool, query: t.label, status: "running", batch: b });
+            for (const t of tools ?? []) {
+              if (!t || cards.some((c) => c.id === t.id)) continue;
+              cards.push({ id: t.id, tool: t.tool, query: describeTool(t.tool, t.label), status: "running", batch: b });
             }
             syncCards();
           },
@@ -279,15 +289,17 @@ export function useChat(p: Params) {
               status: d.error ? (declined ? "declined" : "error") : "done",
               ms: d.ms,
               error: d.error,
-              query: d.label || cards[idx].query,
+              duplicate: d.duplicate === true || undefined,
+              query: d.label ? describeTool(d.tool || cards[idx].tool, d.label) : cards[idx].query,
             });
             syncCards();
           },
-          onApprovalRequest: ({ id, queries }) => {
+          onApprovalRequest: ({ id, queries, actions }) => {
             approvalIds.current.add(id);
-            void notify("approval", "Approval needed", queries[0]);
-            approvals.add({ id, conversationId: convRef.current ?? convId, queries, createdAt: Date.now() });
-            patch((m) => ({ ...m, approval: { id, queries, status: "pending", expiresAt: Date.now() + 120_000 } }));
+            const lines = approvalLines(queries ?? [], actions);
+            void notify("approval", "Approval needed", lines[0] ? approvalLineText(lines[0]) : queries?.[0]);
+            approvals.add({ id, conversationId: convRef.current ?? convId, queries: queries ?? [], actions, createdAt: Date.now() });
+            patch((m) => ({ ...m, approval: { id, queries: queries ?? [], actions, status: "pending", expiresAt: Date.now() + 120_000 } }));
           },
           onApprovalResult: ({ id, approved }) => {
             approvalIds.current.delete(id);
@@ -334,6 +346,7 @@ export function useChat(p: Params) {
             convId = d.conversationId;
             if (raf) cancelAnimationFrame(raf);
             flush();
+            endOpenWork();
             cardsByTurn.current.set(d.turnId, { cards: [...cards], memory });
             void notify("finished", "Answer ready", "Minimi finished your question.");
             if (alive() && !convRef.current) {
@@ -343,6 +356,7 @@ export function useChat(p: Params) {
           },
           onError: (m) => {
             failure = m;
+            endOpenWork();
             void notify("failed", "Run failed", m);
           },
         },
@@ -350,7 +364,10 @@ export function useChat(p: Params) {
       );
 
       if (raf) cancelAnimationFrame(raf);
-      if (alive()) flush();
+      if (alive()) {
+        flush();
+        endOpenWork();
+      }
       clearApprovals();
       if (!alive()) return; // the user moved to another conversation; it owns the state now
 

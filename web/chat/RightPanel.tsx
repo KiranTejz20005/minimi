@@ -2,6 +2,7 @@ import { useId, useMemo, useState, type ReactNode } from "react";
 import type { AttachmentRef, Integrations, SourceRef } from "../api";
 import { ProgressTracker, QueueMonitor } from "../ui";
 import type { ApprovalData, SearchCardData, Toast } from "./types";
+import { approvalLines, approvalLineText, toolMeta } from "./tools";
 import { Check, Chevron, Close, Copy, Download, FileIcon, Spinner } from "./icons";
 import { copyText, hostOf, plainText, slug } from "./markdown";
 import { DocViewer, type DocTab } from "./DocViewer";
@@ -84,9 +85,9 @@ function ToolQueue({ cards, approval }: { cards: SearchCardData[]; approval?: Ap
   const running = cards.filter((c) => c.status === "running");
   const widest = cards.reduce<Record<number, number>>((m, c) => ((m[c.batch] = (m[c.batch] ?? 0) + 1), m), {});
   const capacity = Math.max(1, running.length, ...Object.values(widest));
-  const waiting = approval?.status === "pending" ? approval.queries.map((q, i) => ({ id: `ap${i}`, label: q, meta: "needs approval" })) : [];
+  const waiting = approval?.status === "pending" ? approvalLines(approval.queries, approval.actions).map((l, i) => ({ id: `ap${i}`, label: approvalLineText(l), meta: "needs approval" })) : [];
   const done = cards.filter((c) => c.status === "done").length;
-  const failed = cards.filter((c) => c.status === "error").length;
+  const failed = cards.filter((c) => c.status === "error" || c.status === "stopped").length;
   const busy = running.length > 0 || waiting.length > 0;
   return (
     <QueueMonitor
@@ -97,7 +98,7 @@ function ToolQueue({ cards, approval }: { cards: SearchCardData[]; approval?: Ap
       waiting={waiting}
       workers={Array.from({ length: capacity }, (_, i) => {
         const c = running[i];
-        return { id: `t${i}`, name: c ? c.tool || "web_search" : `Slot ${i + 1}`, job: c ? { label: c.query } : null };
+        return { id: `t${i}`, name: c ? toolMeta(c.tool).title : `Slot ${i + 1}`, job: c ? { label: c.query } : null };
       })}
       capacity={capacity}
       done={done}

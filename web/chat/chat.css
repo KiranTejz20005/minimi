@@ -167,7 +167,11 @@
 .cv .tc__rtitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cv .tc__rhost { flex: none; color: var(--faint); font-size: 11.5px; }
 .cv .tc__mem { display: flex; gap: 10px; padding: 3px 0; font-size: 12.5px; color: var(--text-2); }
-.cv .tc__note { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
+.cv .tc__note { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.cv .tc__note[data-tone="error"] { color: var(--red); }
+.cv .tc__full { margin: 8px 0 0; font-size: 12.5px; color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.cv .tc__time[data-status="stopped"] .tc__dot { background: var(--faint); }
+.cv .tc[data-state="stopped"] .tc__label, .cv .tc[data-state="declined"] .tc__label { opacity: 0.85; }
 .cv .tc[data-state="running"] .tc__head { color: var(--text-2); }
 
 /* Approval card */
@@ -179,6 +183,12 @@
 .cv .ap__timer { margin-left: auto; font-size: 11.5px; color: var(--amber); font-variant-numeric: tabular-nums; }
 .cv .ap__chip { margin-left: auto; display: grid; color: var(--muted); }
 .cv .ap__list { margin: 8px 0 0; padding: 0 0 0 18px; color: var(--text-2); font-size: 12.5px; }
+.cv .ap__list li { overflow-wrap: anywhere; }
+.cv .ap__verb { font-weight: 600; color: var(--text); }
+.cv .ap[data-persistent] { border-color: color-mix(in srgb, var(--red) 45%, var(--border)); border-left-width: 3px; }
+.cv .ap[data-persistent][data-status="approved"] { border-color: color-mix(in srgb, var(--green) 40%, var(--border)); }
+.cv .ap[data-persistent][data-status="declined"], .cv .ap[data-persistent][data-status="expired"] { border-color: var(--border); }
+.cv .ap__warn { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
 .cv .ap__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 
 /* ── Composer ── */
@@ -190,6 +200,9 @@
 .cv .cp__atts { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; padding: 0; }
 .cv .cp__att { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 8px; border-radius: 7px; background: var(--surface-3); border: 1px solid var(--border); font-size: 12px; color: var(--text-2); animation: cv-pop 160ms var(--ease-out) both; }
 .cv .cp__att[data-status="uploading"] { opacity: 0.75; }
+.cv .cp__att[data-status="error"] { height: auto; min-height: 26px; padding-block: 3px; border-color: color-mix(in srgb, var(--red) 45%, var(--border)); max-width: 100%; }
+.cv .cp__atterr { color: var(--red); overflow-wrap: anywhere; }
+.cv .cp__attkind { font-size: 9.5px; font-weight: 700; letter-spacing: 0.02em; padding: 1px 4px; border-radius: 4px; background: var(--surface-2); color: var(--muted); }
 .cv .cp__attname { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cv .cp__att button { display: grid; place-items: center; width: 18px; height: 18px; border: 0; background: transparent; color: var(--muted); border-radius: 5px; }
 .cv .cp__bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }

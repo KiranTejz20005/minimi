@@ -1,7 +1,8 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { api, type MemoryEvent } from "../api";
 import type { ApprovalData, SearchCardData, Toast } from "./types";
-import { Check, Chevron, Close, Globe, Memory, Spinner } from "./icons";
+import { Bookmark, Calc, Check, Chevron, Close, FileIcon, Globe, Memory, Page, Spinner, Wrench } from "./icons";
+import { approvalLines, statusNote, statusPhrase, toolMeta, type ToolIconKey } from "./tools";
 import { fmtMs, hostOf } from "./markdown";
 
 /** Generic expandable tool card (header button + animated body). */
@@ -13,7 +14,9 @@ function Card({
   expandable,
   children,
   state,
+  title,
 }: {
+  title?: string;
   icon: ReactNode;
   tool: string;
   label: ReactNode;
@@ -36,7 +39,7 @@ function Card({
       >
         <span className="tc__icon">{icon}</span>
         <code className="tc__tool">{tool}</code>
-        <span className="tc__label">{label}</span>
+        <span className="tc__label" title={title}>{label}</span>
         <span className="tc__right">{right}</span>
         {expandable && (
           <span className="tc__chev">
@@ -55,33 +58,25 @@ function Card({
   );
 }
 
-/** Renders web_search + fetch_url/memory_search/lookup_claims cards from useChat. User: add more tools. */
-function toolVerb(tool: string, status: SearchCardData["status"]): string {
-  if (status === "running") {
-    if (tool === "fetch_url") return "Fetching";
-    if (tool === "memory_search") return "Searching memory";
-    if (tool === "lookup_claims") return "Looking up claims";
-    return "Searching";
-  }
-  if (status === "declined") return "Declined";
-  if (status === "error") {
-    if (tool === "fetch_url") return "Fetch failed";
-    if (tool === "memory_search") return "Memory search failed";
-    if (tool === "lookup_claims") return "Claims lookup failed";
-    return "Search failed";
-  }
-  if (tool === "fetch_url") return "Fetched";
-  if (tool === "memory_search") return "Memory";
-  if (tool === "lookup_claims") return "Claims";
-  return "Searched";
-}
+const TOOL_ICON: Record<ToolIconKey, () => ReactNode> = {
+  globe: () => <Globe />,
+  page: () => <Page />,
+  memory: () => <Memory />,
+  claims: () => <Check />,
+  calc: () => <Calc />,
+  file: () => <FileIcon />,
+  save: () => <Bookmark />,
+  generic: () => <Wrench />,
+};
 
+/** One card per tool call (any tool): presentation comes from tools.ts so new tools need no UI change. */
 export function SearchCard({ card }: { card: SearchCardData }) {
   const { status } = card;
   const tool = card.tool || "web_search";
+  const meta = toolMeta(tool);
   const label = (
     <>
-      {toolVerb(tool, status)} <b>{card.query}</b>
+      {statusPhrase(tool, status)} <b>{card.query}</b>
     </>
   );
   const right =
@@ -90,21 +85,28 @@ export function SearchCard({ card }: { card: SearchCardData }) {
     ) : (
       <span className="tc__time" data-status={status}>
         {card.cached && <span className="tc__badge">cached</span>}
+        {card.duplicate && <span className="tc__badge">reused</span>}
         <i className="tc__dot" />
-        {status === "declined" ? "skipped" : fmtMs(card.ms)}
+        {status === "declined" ? "skipped" : status === "stopped" ? "stopped" : fmtMs(card.ms)}
       </span>
     );
   const results = card.results ?? [];
-  const expandable = status !== "running" && (results.length > 0 || status === "error" || status === "declined");
+  const note = statusNote(tool, status, card.error, card.duplicate);
+  // Long labels (an expression, a memory text) are ellipsized in the header, so the body repeats them in full.
+  const longLabel = card.query.length > 56;
+  const expandable = status !== "running" && (results.length > 0 || !!note || longLabel);
   return (
-    <Card icon={<Globe />} tool={tool} label={label} right={right} expandable={expandable} state={status}>
-      {status === "error" || status === "declined" ? (
-        <p className="tc__note">
-          {status === "declined"
-            ? "You declined this network action, so the agent continued without it."
-            : card.error || "The tool returned an error."}
-        </p>
-      ) : (
+    <Card
+      icon={TOOL_ICON[meta.icon]()}
+      tool={meta.title}
+      label={label}
+      title={card.query}
+      right={right}
+      expandable={expandable}
+      state={status}
+    >
+      {longLabel && <p className="tc__full">{card.query}</p>}
+      {results.length > 0 && status !== "error" && status !== "declined" && status !== "stopped" && (
         <ul className="tc__results">
           {results.map((r, i) => (
             <li key={`${r.url}-${i}`}>
@@ -116,6 +118,11 @@ export function SearchCard({ card }: { card: SearchCardData }) {
             </li>
           ))}
         </ul>
+      )}
+      {note && (
+        <p className="tc__note" data-tone={status === "error" ? "error" : undefined} role={status === "error" ? "alert" : undefined}>
+          {note}
+        </p>
       )}
     </Card>
   );
@@ -177,27 +184,38 @@ export function ApprovalCard({ approval, toast }: { approval: ApprovalData; toas
 
   const expired = approval.status === "expired" || (pending && left === 0);
   const mm = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+  const lines = approvalLines(approval.queries, approval.actions);
+  const persistent = lines.some((l) => l.persistent);
+  const allPersistent = lines.length > 0 && lines.every((l) => l.persistent);
+  const title = pending && !expired
+    ? persistent ? "Change your memory?" : "Allow this action?"
+    : expired ? "Approval expired" : approval.status === "approved" ? "Approved" : "Declined";
   return (
-    <div className="ap" data-status={expired ? "expired" : approval.status} role="group" aria-label="Approval needed">
+    <div className="ap" data-status={expired ? "expired" : approval.status} data-persistent={persistent ? "" : undefined} role="group" aria-label={persistent ? "Memory change needs approval" : "Approval needed"}>
       <div className="ap__head">
-        <span className="ap__title">{pending && !expired ? "Allow this action?" : expired ? "Approval expired" : approval.status === "approved" ? "Approved" : "Declined"}</span>
+        <span className="ap__title">{title}</span>
         {pending && !expired && <span className="ap__timer" aria-live="off">Auto-declines in {mm}</span>}
         {!pending && !expired && (
           <span className="ap__chip">{approval.status === "approved" ? <Check /> : <Close />}</span>
         )}
       </div>
       <ul className="ap__list">
-        {approval.queries.map((q, i) => (
-          <li key={`${q}-${i}`}>{q}</li>
+        {lines.map((l, i) => (
+          <li key={`${l.verb}-${l.label}-${i}`} data-persistent={l.persistent ? "" : undefined}>
+            {l.verb && <strong className="ap__verb">{l.verb}{l.label ? ":" : ""}</strong>}
+            {l.verb && l.label ? " " : ""}
+            <span className="ap__what">{l.label}</span>
+          </li>
         ))}
       </ul>
+      {pending && !expired && persistent && <p className="ap__warn">This changes what Minimi remembers about you in future chats.</p>}
       {pending && !expired && (
         <div className="ap__actions">
           <button type="button" className="btn btn--ghost" disabled={busy} onClick={() => void answer(false)}>Decline</button>
-          <button type="button" className="btn btn--primary" disabled={busy} onClick={() => void answer(true)}>Approve</button>
+          <button type="button" className="btn btn--primary" disabled={busy} onClick={() => void answer(true)}>{allPersistent ? "Save to memory" : "Approve"}</button>
         </div>
       )}
-      {expired && <p className="tc__note">No answer in time, so the agent continued without searching.</p>}
+      {expired && <p className="tc__note">{persistent ? "No answer in time, so nothing was saved." : "No answer in time, so the agent continued without it."}</p>}
     </div>
   );
 }
