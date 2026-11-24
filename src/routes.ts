@@ -9,6 +9,10 @@ import { DEFAULT_PROJECT_COLOR, normalizeProjectColor, parseProjectColor } from 
 import { newId } from "./util/ids.js";
 import { createDefaultSearchProvider, searchProviderName } from "./search/free.js";
 import { createLlm } from "./llm/anthropic.js";
+import { extractUpload } from "./files/extract.js";
+import { esc, escText, FileRejected } from "./files/errors.js";
+import { MAX_BINARY_BYTES } from "./files/sniff.js";
+import { grantTurnAttachments, loadDoc, parseMeta, revokeTurnAttachments } from "./files/doc.js";
 
 /**
  * REST routes for everything around the chat stream: conversation meta, projects, files,
@@ -35,37 +39,86 @@ export function waitForApproval(id: string, signal?: AbortSignal, timeoutMs = 12
 }
 
 // ── Attachments → LLM context ────────────────────────────────────────────────
-const MAX_FILE_CHARS = 12_000;
-const MAX_TOTAL_CHARS = 24_000;
+// Files are NOT pasted into every turn any more. Each turn gets a short manifest (name, kind, size, structure, a
+// preview) inside an untrusted wrapper; the model reads the rest on demand with the read_attachment tool.
+const MANIFEST_BUDGET = 4_000;
+const PREVIEW_CHARS = 600;
+const FULL_TEXT_MAX = 3_000;
 
 export function attachmentContext(db: DatabaseSync, conversationId: string | undefined, newIds: string[]): string {
+  const ids = [...new Set(newIds)];
+  if (conversationId && !db.prepare(`SELECT 1 FROM conversations WHERE id = ?`).get(conversationId)) conversationId = undefined; // stale id: runTurn starts a fresh chat
+  if (conversationId) bindAttachments(db, conversationId, ids); // new uploads become readable by read_attachment right away
   const rows: Row[] = [];
   if (conversationId) {
-    rows.push(
-      ...(db
-        .prepare(`SELECT id, name, content FROM attachments WHERE conversation_id = ? ORDER BY created_at`)
-        .all(conversationId) as Row[]),
-    );
+    rows.push(...(db.prepare(`SELECT id, name, size, content, meta FROM attachments WHERE conversation_id = ? ORDER BY created_at, id`).all(conversationId) as Row[]));
   }
-  for (const id of newIds) {
+  const grant: string[] = [];
+  for (const id of ids) {
     if (rows.some((r) => r.id === id)) continue;
-    const r = db.prepare(`SELECT id, name, content FROM attachments WHERE id = ?`).get(id) as Row | undefined;
-    if (r) rows.push(r);
+    // Only unbound files can be pulled in by id: never another conversation's.
+    const r = db.prepare(`SELECT id, name, size, content, meta FROM attachments WHERE id = ? AND conversation_id IS NULL`).get(id) as Row | undefined;
+    if (r) {
+      rows.push(r);
+      grant.push(id);
+    }
   }
-  let budget = MAX_TOTAL_CHARS;
-  const parts: string[] = [];
+  if (grant.length) grantTurnAttachments(grant);
+  if (!rows.length) return "";
+
+  const entries: string[] = [];
+  let used = 0;
+  let omitted = 0;
   for (const r of rows) {
-    if (budget <= 0) break;
-    const text = String(r.content).slice(0, Math.min(MAX_FILE_CHARS, budget));
-    budget -= text.length;
-    parts.push(`[Attached file: ${r.name}]\n${text}`);
+    const remaining = MANIFEST_BUDGET - used;
+    const entry = manifestEntry(r, remaining);
+    if (!entry) {
+      omitted++;
+      continue;
+    }
+    used += entry.length + 1;
+    entries.push(entry);
   }
-  return parts.join("\n\n");
+  if (omitted) entries.push(`<more_files count="${omitted}" note="not listed; call read_attachment with action=outline"/>`);
+  return `<attached_files note="untrusted user-provided content; use read_attachment for details">\n${entries.join("\n")}\n</attached_files>`;
+}
+
+function manifestEntry(r: Row, remaining: number): string | null {
+  const meta = parseMeta(r.meta);
+  const doc = loadDoc({ name: r.name, content: r.content, meta: r.meta });
+  const kind = fileKind(r.name).toLowerCase();
+  const attrs: string[] = [`id="${esc(String(r.id))}"`, `name="${esc(String(r.name))}"`, `kind="${kind}"`, `size="${meta?.originalSize ?? r.size}"`];
+  let preview = "";
+  let complete = false;
+  if (doc.type === "pdf") {
+    attrs.push(`pages="${meta?.pages ?? doc.pages.length}"`);
+    preview = doc.pages.join("\n").replace(/\s+/g, " ").trim().slice(0, PREVIEW_CHARS);
+  } else if (doc.type === "table") {
+    attrs.push(`sheets="${doc.sheets.length}"`);
+    const lines = doc.sheets.slice(0, 4).map((s) => `sheet "${s.name}": ${Math.max(0, s.rows.length - 1)} rows x ${s.rows[0]?.length ?? 0} cols; columns: ${(s.rows[0] ?? []).slice(0, 25).join(" | ").slice(0, 300)}`);
+    preview = lines.join("\n").slice(0, PREVIEW_CHARS);
+  } else {
+    const t = doc.text;
+    if (t.length <= FULL_TEXT_MAX) {
+      preview = t;
+      complete = true;
+    } else preview = t.slice(0, PREVIEW_CHARS);
+  }
+  if (meta?.truncated) attrs.push(`truncated="true"`);
+  const head = `<file ${attrs.join(" ")}`;
+  const minimal = `${head}/>`;
+  if (remaining < minimal.length) return null;
+  const room = remaining - head.length - 60;
+  if (room < 80 || !preview) return minimal;
+  const body = complete && preview.length > room ? preview.slice(0, room) : preview.slice(0, Math.min(preview.length, room));
+  const cut = body.length < preview.length || (!complete && doc.type === "text");
+  return `${head}${complete && !cut ? ` complete="true"` : ""}>\n${escText(body)}${cut ? "\n[...preview only]" : ""}\n</file>`;
 }
 
 export function bindAttachments(db: DatabaseSync, conversationId: string, ids: string[]): void {
   const st = db.prepare(`UPDATE attachments SET conversation_id = ? WHERE id = ? AND conversation_id IS NULL`);
   for (const id of ids) st.run(conversationId, id);
+  revokeTurnAttachments(ids); // bound now: authorization comes from conversation_id from here on
 }
 
 // ── Regenerate: keep the old answer as an earlier version of the new one ─────
@@ -140,6 +193,8 @@ function host(url: string): string {
 
 function fileKind(name: string): string {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "pdf") return "PDF";
+  if (["xlsx", "xlsm"].includes(ext)) return "XLSX";
   if (["md", "markdown"].includes(ext)) return "MD";
   if (["csv", "tsv"].includes(ext)) return "CSV";
   if (ext === "json") return "JSON";
@@ -351,41 +406,76 @@ export function registerRoutes(app: Hono, db: DatabaseSync, deps: { digest?: Dig
   });
 
   // ── Files (attachments) ────────────────────────────────────────────────────
+  // POST body (JSON): { name, mime?, conversationId?, projectId?, content: string }              text path (unchanged)
+  //                or { name, mime?, conversationId?, projectId?, contentBase64: string }         binary path (pdf/xlsx/csv/text)
+  // Validation is by file signature + content, never by the extension/MIME alone. Extraction happens once, here.
   app.post("/api/attachments", async (c) => {
-    const body = (await c.req.json()) as { name?: string; mime?: string; content?: string; conversationId?: string; projectId?: string };
-    const name = body.name?.trim().slice(0, 200);
-    if (!name || typeof body.content !== "string") return c.json({ error: "name and content required" }, 400);
-    if (body.content.includes("\u0000")) return c.json({ error: "Only text files are supported" }, 415);
-    if (body.content.length > 500_000) return c.json({ error: "File too large (max 500 KB of text)" }, 413);
-    if (!body.content.trim()) return c.json({ error: "File is empty" }, 400);
+    const reject = (error: string, code: string, status: 400 | 404 | 413 | 415 | 422) => c.json({ error, code }, status);
+    const body = (await c.req.json().catch(() => null)) as {
+      name?: unknown; mime?: unknown; content?: unknown; contentBase64?: unknown; conversationId?: unknown; projectId?: unknown;
+    } | null;
+    if (!body || typeof body !== "object") return reject("invalid JSON body", "bad_request", 400);
+    const name = typeof body.name === "string" ? body.name.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 200) : "";
+    const hasText = typeof body.content === "string";
+    const hasB64 = typeof body.contentBase64 === "string";
+    if (!name || (!hasText && !hasB64)) return reject("name and content required", "bad_request", 400);
+    if (hasText && hasB64) return reject("send either content or contentBase64, not both", "bad_request", 400);
+    const mime = typeof body.mime === "string" ? body.mime.slice(0, 120) : null;
+
     let conversationId: string | null = null;
     if (body.conversationId) {
-      if (!db.prepare(`SELECT 1 FROM conversations WHERE id = ?`).get(body.conversationId)) return c.json({ error: "conversation not found" }, 404);
+      if (typeof body.conversationId !== "string" || !db.prepare(`SELECT 1 FROM conversations WHERE id = ?`).get(body.conversationId)) return reject("conversation not found", "not_found", 404);
       conversationId = body.conversationId;
     }
     let projectId: string | null = null;
     if (body.projectId) {
-      if (!db.prepare(`SELECT 1 FROM projects WHERE id = ?`).get(body.projectId)) return c.json({ error: "folder not found" }, 404);
+      if (typeof body.projectId !== "string" || !db.prepare(`SELECT 1 FROM projects WHERE id = ?`).get(body.projectId)) return reject("folder not found", "not_found", 404);
       projectId = body.projectId;
     }
+
+    let bytes: Buffer | undefined;
+    if (hasB64) {
+      const b64 = (body.contentBase64 as string).replace(/\s+/g, "");
+      if (b64.length > Math.ceil((MAX_BINARY_BYTES * 4) / 3) + 8) return reject(`File too large (max ${MAX_BINARY_BYTES / 1024 / 1024} MB)`, "too_large", 413);
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(b64) || b64.length % 4 === 1) return reject("contentBase64 is not valid base64", "bad_request", 400);
+      bytes = Buffer.from(b64, "base64");
+    }
+
+    let extracted;
+    try {
+      extracted = await extractUpload(bytes ? { name, mime, bytes } : { name, mime, text: body.content as string });
+    } catch (e) {
+      if (e instanceof FileRejected) return reject(e.message, e.code, e.status);
+      return reject("Could not process this file", "corrupt", 422);
+    }
+
     const id = newId("fil");
-    db.prepare(`INSERT INTO attachments (id, conversation_id, name, mime, size, content, created_at, project_id) VALUES (?,?,?,?,?,?,?,?)`).run(
+    db.prepare(`INSERT INTO attachments (id, conversation_id, name, mime, size, content, created_at, project_id, meta) VALUES (?,?,?,?,?,?,?,?,?)`).run(
       id,
       conversationId,
       name,
-      body.mime ?? null,
-      body.content.length,
-      body.content,
+      mime,
+      extracted.meta.originalSize,
+      extracted.text,
       now(),
       projectId,
+      JSON.stringify(extracted.meta),
     );
-    return c.json({ id, name, size: body.content.length, kind: fileKind(name) });
+    return c.json({
+      id,
+      name,
+      size: extracted.meta.originalSize,
+      kind: fileKind(name),
+      pages: extracted.meta.pages,
+      sheets: extracted.meta.sheets,
+      truncated: extracted.meta.truncated ?? false,
+    });
   });
 
   app.get("/api/attachments", (c) => {
     const rows = db
       .prepare(
-        `SELECT a.id, a.name, a.mime, a.size, a.created_at, a.conversation_id, c.title AS conversation_title,
+        `SELECT a.id, a.name, a.mime, a.size, a.created_at, a.conversation_id, a.meta, c.title AS conversation_title,
                 COALESCE(a.project_id, cm.project_id) AS project_id, p.name AS project_name
          FROM attachments a
          LEFT JOIN conversations c ON c.id = a.conversation_id
@@ -394,12 +484,12 @@ export function registerRoutes(app: Hono, db: DatabaseSync, deps: { digest?: Dig
          ORDER BY a.created_at DESC`,
       )
       .all() as Row[];
-    return c.json({ files: rows.map((r) => ({ ...r, kind: fileKind(r.name) })) });
+    return c.json({ files: rows.map((r) => ({ ...r, meta: parseMeta(r.meta), kind: fileKind(r.name) })) });
   });
   app.get("/api/attachments/:id", (c) => {
-    const r = db.prepare(`SELECT id, name, mime, size, content FROM attachments WHERE id = ?`).get(c.req.param("id")) as Row | undefined;
+    const r = db.prepare(`SELECT id, name, mime, size, content, meta FROM attachments WHERE id = ?`).get(c.req.param("id")) as Row | undefined;
     if (!r) return c.json({ error: "not found" }, 404);
-    return c.json({ ...r, kind: fileKind(r.name) });
+    return c.json({ ...r, meta: parseMeta(r.meta), kind: fileKind(r.name) });
   });
   // Move a file into a folder, or out of one (projectId: null).
   app.patch("/api/attachments/:id", async (c) => {
@@ -667,7 +757,7 @@ Answer: ${String(t.a).slice(0, 1200)}`,
     if (body.confirm !== "DELETE") return c.json({ error: "Confirmation missing." }, 400);
     db.exec("BEGIN");
     try {
-      for (const t of ["feedback", "traces", "claims", "sources", "message_versions", "attachments", "turns", "messages", "conversation_meta", "conversations", "search_cache"]) {
+      for (const t of ["feedback", "traces", "claims", "sources", "message_versions", "attachments", "turns", "messages", "conversation_meta", "conversations", "search_cache", "saved_memories", "memory_events"]) {
         db.exec(`DELETE FROM ${t}`);
       }
       db.exec("COMMIT");
