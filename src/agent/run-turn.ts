@@ -28,6 +28,9 @@ import {
 import { createTraceWriter } from "../trace.js";
 import { newId } from "../util/ids.js";
 import { buildContext } from "./context.js";
+import { renderSavedMemoryBlock } from "../memory/saved.js";
+import { revokeTurnAttachments } from "../files/doc.js";
+import { renderRecentToolResults, saveToolResults } from "./tool-history.js";
 import { composeUserContext, readPrefs } from "../preferences.js";
 import {
   citedNumbers,
@@ -39,29 +42,98 @@ import type { SearchProvider } from "../search/types.js";
 import { runAgentLoop, type LoopCallbacks } from "./loop.js";
 
 /**
- * Questions about things that change (releases, prices, news, "latest"…) must be checked on the web:
- * small models otherwise answer from stale training data. Skipped when the user attached files
- * or is asking about the earlier conversation (memory).
+ * Forced first-step web search: only for requests that are clearly about things that change (news, prices,
+ * releases, scores, weather, office holders...). Everything else - arithmetic, units, dates and time zones
+ * (the system prompt carries today's date; `calculate` does the maths), questions about attached files,
+ * recall of earlier chats, save/forget requests, pure writing/coding/explaining tasks, greetings, pasted
+ * content - is never forced. The model can still call web_search itself whenever it decides to.
+ *
+ * Detectors are conservative pure functions (regex, no network, no model) and are exported for testing.
  */
 const FRESH_CUE =
-  /\b(when|release[sd]?|releasing|launch(es|ed|ing)?|latest|newest|current(ly)?|today|tonight|tomorrow|yesterday|now|news|price[sd]?|pricing|costs?|score|weather|forecast|who (is|are|won|wins)|update[sd]?|version|upcoming|schedule|date|trailer|announce[sd]?|rumou?rs?|stock|rate|20(2[4-9]|3\d))\b/i;
+  /\b(latest|newest|current(ly)?|today'?s?|tonight|tomorrow|yesterday|right now|as of|this (week|month|year|weekend|season)|news|breaking|headlines?|prices?|pricing|stocks?|share price|market cap|exchange rate|scores?|standings|weather|forecast|release[sd]?|releasing|launch(es|ed|ing)?|upcoming|schedule[sd]?|trailer|announce[sd]?|rumou?rs?|who (won|wins|is the (current|new|ceo|cto|cfo|president|prime minister|chancellor|governor|mayor|coach|champion))|ceo|net worth|population|20(2[4-9]|3\d))\b/i;
+/** Cue words in scripts/languages where \b does not work. */
+const FRESH_CUE_INTL =
+  /(今天|今日|最新|新闻|新聞|天气|天氣|股价|आज|मौसम|समाचार|खबर|\bhoy\b|noticias|aujourd'?hui|actualités|météo|\bheute\b|nachrichten|wetter|\bclima\b)/i;
+const CURRENCY_WORDS =
+  /\b(usd|eur|inr|gbp|jpy|cad|aud|chf|cny|dollars?|euros?|rupees?|yen|btc|bitcoin|eth|ethereum)\b|[$€£₹¥]/i;
+/** Currency conversion is live data, unlike unit conversion. */
+const CURRENCY_CONVERSION =
+  /\b(convert|exchange|rate|worth)\b.*(\b(usd|eur|inr|gbp|jpy|cad|aud|chf|cny|dollars?|euros?|rupees?|yen|btc|bitcoin|eth|ethereum)\b|[$€£₹¥])|\b(usd|eur|inr|gbp|jpy)\s+(to|in)\s+(usd|eur|inr|gbp|jpy)\b/i;
 
-const GREETING =
-  /^(hi|hii+|hello|hey|yo|thanks?|thank you|ok(ay)?|cool|nice|great|bye|good (morning|evening|night)|gm|gn)[ !.?,]*$/i;
-const NO_SEARCH_TASK =
-  /^(please )?(explain|write|rewrite|translate|summari[sz]e|fix|debug|refactor|generate|convert|calculate|solve|draft|compose|define|implement|code|create|make|tell me a joke)\b/i;
+const GREETING_RE =
+  /^(hi+|hello+|hey+( there)?|yo|sup|thanks?( you| a lot| so much)?|thank you( so much)?|ok(ay)?|cool|nice|great|bye|good (morning|evening|night|afternoon)|gm|gn|hola|namaste|namaskar|salut|bonjour|ciao|hallo|danke( sch[oö]n)?|gracias|merci|obrigado|你好|您好|谢谢|こんにちは|ありがとう|안녕(하세요)?|привет)[ !.?,~]*$/iu;
 
-/**
- * Search by default: small models answer from stale memory far too often. Skip the search only for
- * greetings, pure writing/coding tasks, attached files, and questions answered by saved memory.
- */
+const TASK_RE =
+  /^(please |pls )?(can you |could you |would you |kindly )?(help me (to )?)?(explain|write|rewrite|translate|summari[sz]e|fix|debug|refactor|generate|solve|draft|compose|define|implement|code|create|make|proofread|edit|improve|paraphrase|rephrase|brainstorm|outline|optimi[sz]e|review|format|describe|teach)\b/i;
+
+const UNIT =
+  "(?:km|kilomet(?:er|re)s?|m|met(?:er|re)s?|cm|mm|mi|miles?|ft|feet|foot|in|inch(?:es)?|yd|yards?|kg|g|grams?|lbs?|pounds?|oz|ounces?|l|lit(?:er|re)s?|ml|gal|gallons?|°?c|°?f|celsius|fahrenheit|kelvin|mph|kph|km/h|hours?|minutes?|mins?|seconds?|secs?|days?|weeks?|months?|years?|bytes?|kb|mb|gb|tb)";
+const UNIT_CONVERSION = new RegExp(`\\b\\d+(?:[.,]\\d+)?\\s*${UNIT}\\b\\s+(?:to|in|into|=)\\s+(?:\\d+\\s*)?${UNIT}\\b`, "i");
+const PURE_EXPRESSION = /^[\s\d+\-*/^%().,x×÷=?]+$/;
+
+export function isGreeting(message: string): boolean {
+  return GREETING_RE.test(message.trim());
+}
+
+/** Arithmetic, percentages, unit conversion ("12 * 7", "15% of 80", "5 km to miles"). Currency is NOT included. */
+export function isCalculation(message: string): boolean {
+  const m = message.trim();
+  if (!/\d/.test(m) || CURRENCY_WORDS.test(m)) return false;
+  if (PURE_EXPRESSION.test(m)) return /[+\-*/^%×÷]|\dx\d/i.test(m);
+  if (/\d+(?:[.,]\d+)?\s*%\s*(?:of|de)\b/i.test(m)) return true;
+  if (/\b(calculate|compute|evaluate|solve|calcul\w*|berechn\w*|hesapla\w*)\b|计算|算一下/i.test(m)) return true;
+  if (/\b(plus|minus|times|divided by|multiplied by|squared|cubed|sqrt|square root|cube root|factorial|modulo)\b/i.test(m)) return true;
+  return UNIT_CONVERSION.test(m);
+}
+
+/** "What day/time/date is it", time zones, "how many days until ...": answered from the clock, not the web. */
+export function isDateTimeQuestion(message: string): boolean {
+  const m = message.trim();
+  return (
+    /\bwhat (day|time|date|year|month)\b.*\b(is it|today|now)\b/i.test(m) ||
+    /\bwhat(?:'?s| is) (?:the |today'?s )?(?:current )?(?:date|day|time)\b/i.test(m) ||
+    /\btime ?zones?\b/i.test(m) ||
+    /\bdays? (until|till|since|between)\b|\bhow many (days|weeks|months|hours|minutes) (until|till|since|between|from|are (in|left))\b/i.test(m)
+  );
+}
+
+/** The message points at something the user attached ("this file", "the pdf", "report.docx"). */
+export function referencesAttachment(message: string): boolean {
+  return (
+    /\b(this|the|that|my|attached|uploaded|enclosed|these|those)\s+(\w+\s+)?(files?|pdfs?|documents?|docx?|images?|pictures?|photos?|screenshots?|spreadsheets?|sheets?|csv|excel|slides?|decks?|resume|cv|attachments?|uploads?|zip)\b/i.test(message) ||
+    /\battach(ed|ments?)\b|\buploaded\b/i.test(message) ||
+    /\b[\w-]+\.(pdf|docx?|xlsx?|csv|pptx?|png|jpe?g|gif|txt|md|json)\b/i.test(message)
+  );
+}
+
+/** Asks about the earlier conversation or about the user themselves: answered from chat memory. */
+export function isMemoryRequest(message: string): boolean {
+  return /\b(do you remember|remember (when|what|me)|what did (i|we)|did (i|we) (talk|tell|say|ask|discuss)|(we|i) (talked|discussed|spoke|said|told|asked)|you (said|told|mentioned|suggested)|earlier|previously|last time|our (last |previous )?(chat|conversation|discussion)|my (saved )?memor(y|ies)|what do you know about me|what(?:'?s| is| are) my|who am i|as (we|i) discussed)\b/i.test(message);
+}
+
+/** Asks to remember or forget something: handled by the memory tools, not the web. */
+export function isSaveOrForget(message: string): boolean {
+  return /\b(remember (that|this|my|i|me|to)|please remember|keep in mind|save (this|that|it|my)\b|add (this|that|it) to (my )?memory|note (that|this)( down)?|don'?t forget|forget (that|this|about|my|what|everything)|delete (that|this|my) (memory|note)|stop remembering|from now on|going forward|always (answer|reply|respond|call me|use))\b/i.test(message);
+}
+
+/** "2026-11-24 + 90 days", "30 days after 1 March 2026": a year in the text is an operand, not a freshness cue. */
+const DATE_ARITHMETIC =
+  /\d{4}-\d{2}-\d{2}\s*[+-]\s*\d+\s*(?:day|week|month|year)s?\b|\b\d+\s*(?:day|week|month|year)s?\s+(?:after|before|from)\b[^?]*\b\d{4}\b|\b(?:days|weeks|months|years)\s+(?:between|from|until|since)\b[^?]*\b\d{4}\b/i;
+
+/** Pasted content (long text, code fences) is material to work on, not a question about the world. */
+const PASTED_CHARS = 600;
+
 export function needsFreshData(message: string, hasAttachments: boolean, hasMemory: boolean): boolean {
   const m = message.trim();
   if (hasAttachments || hasMemory || m.length < 3) return false;
-  if (GREETING.test(m)) return false;
-  if (FRESH_CUE.test(m)) return true;
-  if (NO_SEARCH_TASK.test(m)) return false;
-  return true;
+  if (m.length > PASTED_CHARS || m.includes("```")) return false;
+  if (isGreeting(m) || referencesAttachment(m)) return false;
+  if (isMemoryRequest(m) || isSaveOrForget(m)) return false;
+  if (TASK_RE.test(m)) return false;
+  if (CURRENCY_CONVERSION.test(m)) return true;
+  if (isCalculation(m) || isDateTimeQuestion(m) || DATE_ARITHMETIC.test(m)) return false;
+  return FRESH_CUE.test(m) || FRESH_CUE_INTL.test(m);
 }
 
 /** A usable search query from a chatty question: drop repeated punctuation, cap the length. */
@@ -115,8 +187,12 @@ export interface RunTurnInput {
   model?: string;
   /** What the LLM sees as the user message (e.g. with attachments); `message` is what gets stored/shown. */
   contextMessage?: string;
+  /** Files uploaded with this message; bound to the conversation as soon as it exists. */
+  attachmentIds?: string[];
   /** Composer approval mode for this turn (see permissions.ts). */
   approvalMode?: ApprovalMode;
+  /** Pre-rendered <saved_memories> block (facts the user asked to keep); injected into the new user message. */
+  savedMemoryXml?: string;
 }
 
 export interface RunTurnResult {
@@ -171,6 +247,15 @@ function memoryPayload(recall: RecallResult | null, tz: string) {
   };
 }
 
+/** Saved memories are context, never a reason to fail a turn. */
+function safeSavedMemory(db: DatabaseSync, query: string): string | undefined {
+  try {
+    return renderSavedMemoryBlock(db, { query }) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function runTurn(
   input: RunTurnInput,
   handlers: TurnEventHandlers = {},
@@ -205,6 +290,13 @@ export async function runTurn(
     conversationId = createConversation(db, clock, input.message.slice(0, 80)).id;
   }
   handlers.onConversation?.(conversationId);
+  // First-turn uploads are readable by any chat until bound: bind them to THIS conversation right away (not after
+  // the turn, which never happens if the turn fails) and drop the temporary read grant.
+  if (input.attachmentIds?.length) {
+    const bind = db.prepare(`UPDATE attachments SET conversation_id = ? WHERE id = ? AND conversation_id IS NULL`);
+    for (const id of input.attachmentIds) bind.run(conversationId, id);
+    revokeTurnAttachments(input.attachmentIds);
+  }
 
   const userMsg = appendMessage(
     db,
@@ -253,12 +345,21 @@ export async function runTurn(
     (m) => m.id !== userMsg.id,
   );
   const prefs = readPrefs(db);
+  // Compact results of tools run in earlier turns of this chat, so follow-ups can reuse them (not citable).
+  let previousToolResultsXml: string | undefined;
+  try {
+    previousToolResultsXml = renderRecentToolResults(db, conversationId);
+  } catch {
+    previousToolResultsXml = undefined; // an unreadable history must never block the turn
+  }
   const { system, messages } = buildContext({
     clock,
     tz,
     history,
     userMessage: input.contextMessage ?? input.message,
     memoryXml: memoryXml ?? undefined,
+    savedMemoryXml: input.savedMemoryXml ?? safeSavedMemory(db, input.message),
+    previousToolResultsXml,
     customInstructions: composeUserContext(prefs) || undefined,
   });
 
@@ -289,7 +390,7 @@ export async function runTurn(
       },
     };
     // Pass db/store/approvalMode so loop can run memory_search/lookup_claims and gate permissions.
-    // Called from server.ts POST /api/chat. User: add tools + fix useless permission prompts.
+    // Called from server.ts POST /api/chat. Tools and their approval policy come from src/tools/registry.ts.
     loopResult = await runAgentLoop({
       llm,
       system,
@@ -300,6 +401,8 @@ export async function runTurn(
       model: input.model,
       db,
       store: new MemoryStore(db),
+      turnId: turn.id,
+      conversationId,
       disableWebSearch: !prefs.webSearch,
       approvalMode: input.approvalMode,
       forceSearch: prefs.webSearch && cfg.FORCE_SEARCH !== "0" && !input.llm && needsFreshData(input.message, !!input.contextMessage, recall?.kind === "hit")
@@ -329,7 +432,14 @@ export async function runTurn(
     trace.record("llm_step", clock.now().getTime() - tLoop0, {
       steps: loopResult.steps,
       searches: loopResult.searches,
+      toolCalls: loopResult.toolCalls.length,
+      budget: loopResult.budget ?? null,
     });
+    try {
+      saveToolResults(db, turn.id, loopResult.toolCalls);
+    } catch {
+      /* persisting tool results is an optimisation; the answer matters more */
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Agent loop failed";
     handlers.onError?.(msg);

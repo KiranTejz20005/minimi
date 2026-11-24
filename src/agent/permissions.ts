@@ -1,22 +1,18 @@
-import { parseSearchInput } from "../search/tool.js";
+import { getTool, labelForCall, listTools, stableStringify } from "../tools/registry.js";
+import type { ToolContext } from "../tools/types.js";
 
-/** One action the user may need to confirm (high-impact only). */
+/**
+ * One action the user is asked to confirm. This exact shape is sent to the UI (SSE `approval_request.actions`):
+ * `verb` is the tool's actionLabel ("Fetch page", "Save to memory"), `label` the specific target (URL, text...).
+ */
 export type ApprovalAction = {
   tool: string;
   label: string;
+  verb: string;
 };
 
-/**
- * Tools that change user data or leave the machine in a lasting way.
- * Read-only tools (web_search, fetch_url, memory_search, lookup_claims) are never listed here.
- * User: only ask permission for really important things, not trivial matters.
- */
-const SENSITIVE_TOOLS = new Set<string>([
-  // e.g. "save_user_note", "delete_memory" — add when those tools exist
-]);
-
-/** Tools that reach the network; asked about before every use in "request" mode. */
-const NETWORK_TOOLS = new Set<string>(["web_search", "fetch_url"]);
+/** A call as the loop sees it. `id` is the model's tool_use id; without one the decision key is name + input. */
+export type GateCall = { id?: string; name: string; input: unknown };
 
 /**
  * The composer's approval mode.
@@ -51,78 +47,131 @@ export function looksPrivateUrl(raw: unknown): boolean {
   return !host.includes("."); // single-label hosts (intranet, router) are internal
 }
 
-function urlOf(input: unknown): unknown {
-  return input && typeof input === "object" && "url" in input ? (input as { url: unknown }).url : undefined;
-}
+/**
+ * What kind of decision a call needs:
+ *  - "network": a plain network tool in "request" mode. ONE answer covers the rest of the turn (documented
+ *    trade-off: re-asking before every search would make research turns unusable; the user opted in to
+ *    "ask before the web" and approving the first batch approves the web for this turn).
+ *  - "call":    sensitive tools and calls the tool itself flags via needsApproval(input). Decided PER CALL:
+ *    approving one never approves another call, even the same tool with the same input in a later step.
+ */
+type GateClass = "network" | "call";
 
 /**
- * Turn-scoped permission gate. One decision covers the whole turn.
+ * Turn-scoped, registry-driven permission gate. Policy comes from each tool's definition
+ * (`approval`, `needsApproval`, `actionLabel`), not from name lists here.
+ *
+ * UX: the loop batches every call needing a decision in a step into ONE request (`actionsNeedingPrompt` ->
+ * `requestApproval` -> `record(ok, calls)`). The UI answer is all-or-nothing for that batch, but the decision
+ * is stored per call key, so a later step's new gated call prompts again.
  */
 export class PermissionGate {
-  private decision: boolean | null = null;
+  private networkDecision: boolean | null = null;
+  private readonly decisions = new Map<string, boolean>();
 
-  constructor(_enabled = true, private readonly mode: ApprovalMode = "auto") {
+  constructor(
+    _enabled = true,
+    private readonly mode: ApprovalMode = "auto",
+    private readonly ctx: ToolContext = {} as ToolContext,
+  ) {
     // `_enabled` kept for call-site compat.
   }
 
-  private gated(name: string, input?: unknown): boolean {
-    if (this.mode === "full") return false;
-    if (SENSITIVE_TOOLS.has(name)) return true;
-    if (this.mode === "request") return NETWORK_TOOLS.has(name);
-    return name === "fetch_url" && looksPrivateUrl(urlOf(input));
+  private keyOf(c: GateCall): string {
+    // id AND the call itself: providers that reuse ids (e.g. "0") must not carry an approval over to a different call.
+    return `${c.id ?? ""}|${c.name}|${stableStringify(c.input)}`;
+  }
+
+  private classify(name: string, input: unknown): GateClass | null {
+    if (this.mode === "full") return null;
+    const def = getTool(name);
+    if (!def) return null; // unknown tool: the dispatcher reports it
+    let valid: unknown;
+    try {
+      valid = def.validate(input);
+    } catch {
+      return null; // invalid input never runs, so there is nothing to approve
+    }
+    // A sensitive tool with no needsApproval is always asked about; one WITH needsApproval is asked only
+    // when that says so (e.g. save_memory writes yes, list/search no).
+    let flagged = def.approval === "sensitive" && !def.needsApproval;
+    if (def.needsApproval) {
+      try {
+        flagged = !!def.needsApproval(valid, this.ctx);
+      } catch {
+        flagged = true; // fail closed
+      }
+    }
+    if (flagged) return "call";
+    if (this.mode === "request" && def.approval === "network") return "network";
+    return null;
   }
 
   get active(): boolean {
-    return this.mode !== "full" && (SENSITIVE_TOOLS.size > 0 || this.mode === "request");
+    if (this.mode === "full") return false;
+    return this.mode === "request" || getToolsNeedingGate();
   }
 
+  /** True once a turn-wide network decision exists (kept for older call sites). */
   get decided(): boolean {
-    return this.decision !== null;
+    return this.networkDecision !== null || this.decisions.size > 0;
   }
 
-  record(approved: boolean): void {
-    this.decision = approved;
-  }
-
-  /** Sensitive actions that still need a prompt this step (empty → auto-allow). */
-  actionsNeedingPrompt(calls: { name: string; input: unknown }[]): ApprovalAction[] {
-    if (this.decision !== null) return [];
-    const out: ApprovalAction[] = [];
-    for (const c of calls) {
-      if (!this.gated(c.name, c.input)) continue;
-      out.push({ tool: c.name, label: labelFor(c.name, c.input) });
+  /**
+   * Record the user's answer. With `calls` it is stored per call (and, if the batch held plain network calls,
+   * as the turn-wide network answer). Without `calls` (legacy) it is the turn-wide network answer only.
+   */
+  record(approved: boolean, calls?: GateCall[]): void {
+    if (!calls) {
+      this.networkDecision = approved;
+      return;
     }
-    return out;
+    for (const c of calls) {
+      const cls = this.classify(c.name, c.input);
+      if (cls === null) continue;
+      if (cls === "network") this.networkDecision = approved;
+      else this.decisions.set(this.keyOf(c), approved);
+    }
   }
 
-  allows(name: string, input: unknown): boolean {
-    if (!this.gated(name, input)) return true;
-    if (this.decision === false) return false;
-    return true;
+  /** The calls that still need an answer this step (empty -> nothing to ask). */
+  callsNeedingPrompt<T extends GateCall>(calls: T[]): T[] {
+    return calls.filter((c) => {
+      const cls = this.classify(c.name, c.input);
+      if (cls === "network") return this.networkDecision === null;
+      if (cls === "call") return !this.decisions.has(this.keyOf(c));
+      return false;
+    });
+  }
+
+  actionFor(c: GateCall): ApprovalAction {
+    const def = getTool(c.name);
+    let label = labelForCall(c.name, c.input);
+    // Let a tool spell out the exact effect (e.g. the text of the memory about to be forgotten, not just its id).
+    if (def?.describe) {
+      try {
+        label = def.describe(def.validate(c.input), this.ctx) || label;
+      } catch {
+        /* keep the plain label */
+      }
+    }
+    return { tool: c.name, label, verb: def?.actionLabel ?? c.name };
+  }
+
+  actionsNeedingPrompt(calls: GateCall[]): ApprovalAction[] {
+    return this.callsNeedingPrompt(calls).map((c) => this.actionFor(c));
+  }
+
+  /** May this call run? Undecided per-call actions are NOT allowed (never silently approved). */
+  allows(name: string, input: unknown, id?: string): boolean {
+    const cls = this.classify(name, input);
+    if (cls === null) return true;
+    if (cls === "network") return this.networkDecision !== false;
+    return this.decisions.get(this.keyOf({ id, name, input })) === true;
   }
 }
 
-function labelFor(name: string, input: unknown): string {
-  if (name === "web_search") {
-    const parsed = parseSearchInput(input);
-    return parsed?.query || queryField(input) || "web search";
-  }
-  if (name === "fetch_url") {
-    const url =
-      input && typeof input === "object" && "url" in input
-        ? String((input as { url: unknown }).url)
-        : "";
-    return url || "fetch page";
-  }
-  if (input && typeof input === "object" && "query" in input) {
-    return String((input as { query: unknown }).query) || name;
-  }
-  return name;
+function getToolsNeedingGate(): boolean {
+  return listTools().some((t) => t.approval === "sensitive" || !!t.needsApproval);
 }
 
-function queryField(input: unknown): string {
-  if (input && typeof input === "object" && "query" in input) {
-    return String((input as { query: unknown }).query);
-  }
-  return "";
-}
