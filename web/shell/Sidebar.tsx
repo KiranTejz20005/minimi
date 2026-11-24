@@ -21,6 +21,7 @@ import {
   IconRuns,
   IconSearch,
   IconSidebar,
+  IconKeyboard,
   IconSun,
   IconTrash,
   IconEdit,
@@ -381,20 +382,21 @@ export function Sidebar(p: SidebarProps) {
     return (
       <>
         <nav className="sidebar rail" aria-label="Primary">
-          <button type="button" className="rail-btn" onClick={p.onToggleCollapsed} disabled={p.forcedCollapsed} aria-label="Expand sidebar" title={p.forcedCollapsed ? "Window too narrow to expand" : `Expand sidebar (${MOD}+B)`}>
-            <WsAvatar size={24} />
+          <button type="button" className="rail-btn rail-expand" onClick={p.onToggleCollapsed} aria-label="Expand sidebar" data-tip={`Expand sidebar (${MOD}+B)`}>
+            <span className="rail-expand__logo"><WsAvatar size={24} /></span>
+            <span className="rail-expand__icon"><IconSidebar /></span>
           </button>
-          <button type="button" className="rail-btn" onClick={p.onOpenPalette} aria-label="Search" title={`Search (${MOD}+K)`}>
+          <button type="button" className="rail-btn" onClick={p.onOpenPalette} aria-label="Search" data-tip={`Search (${MOD}+K)`}>
             <IconSearch />
           </button>
           {navItems.map((n) => (
-            <button key={n.key} type="button" className="rail-btn" data-active={n.active || undefined} onClick={n.run} aria-label={n.label} title={n.label}>
+            <button key={n.key} type="button" className="rail-btn" data-active={n.active || undefined} onClick={n.run} aria-label={n.label} data-tip={n.label}>
               {n.icon}
               {!!n.badge && <span className="rail-badge">{n.badge}</span>}
             </button>
           ))}
           <div className="rail-spacer" />
-          <button type="button" className="rail-btn" onClick={userMenu} aria-label={`Account: ${p.userName}`} aria-haspopup="menu" title={p.userName}>
+          <button type="button" className="rail-btn" onClick={userMenu} aria-label={`Account: ${p.userName}`} aria-haspopup="menu" data-tip={p.userName}>
             <UserAvatar name={p.userName} size={24} />
           </button>
         </nav>
