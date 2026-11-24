@@ -100,7 +100,7 @@ You can verify both connections without chatting: open **Integrations** in the s
    re-checks the claims on the web, and reports differences. Ask about a day with no history and it says it has no record.
 5. **Message actions** — hover an answer: copy, **regenerate** (old answers become versions you can flip through),
    thumbs up/down (with a reason), **read aloud**.
-6. **Attach a file** — **＋ → Attach text file** (`.txt .md .csv .json`, code), then ask about it.
+6. **Attach a file** — **＋ → Attach file** (PDF, XLSX, CSV, text, code), then ask about it. The agent reads it on demand with the `read_attachment` tool.
 7. **Approvals** — the shield chip in the composer sets how the agent asks (see [Approvals](#approvals)).
 8. **Behind the scenes** — **Runs** shows every question's pipeline (time resolution → memory → search → citations)
    with timings; **Analytics** shows real usage; **Folders** shows attached files and projects.
@@ -118,7 +118,7 @@ npm run seed:fixtures  # load the F1–F8 eval fixture history into the DB
 ```
 
 > The mock eval is run with the default agent limits from `.env.example`
-> (`MAX_STEPS=4`, `MAX_SEARCHES_PER_STEP=12`). If you lowered them for speed, a few cases that require many
+> (`MAX_STEPS=4`, `MAX_SEARCHES_PER_STEP=12`; the eval script pins these itself, the app default for `MAX_STEPS` is now `6`). If you lowered them for speed, a few cases that require many
 > parallel searches will (correctly) not reach their expected search counts.
 
 ---
@@ -142,7 +142,9 @@ All configuration is via environment variables (loaded from `.env`). Defaults sh
 | `RATE_LIMIT_PER_MIN` | `30` | Chat requests per client IP per minute (`0` = off) |
 | `TRUST_PROXY` | `0` | `1` = read client IP from `X-Forwarded-For` (only behind your own proxy) |
 | `FORCE_SEARCH` | `1` | Search by default on factual/time-sensitive questions; `0` = model decides |
-| `MAX_STEPS` | `4` | Max model↔tool rounds per question |
+| `MAX_STEPS` | `6` | Max model steps per question (the last step answers without tools) |
+| `MAX_TOOL_CALLS_PER_TURN` / `MAX_PARALLEL_TOOLS` | `24` / `6` | Total tool calls per question; concurrent calls within a step |
+| `HISTORY_TOKEN_BUDGET` | `6000` | Estimated tokens of earlier chat sent to the model |
 | `MAX_SEARCHES_PER_STEP` / `MAX_SEARCHES_PER_TURN` | `12` / `16` | Search fan-out limits |
 | `SEARCH_TIMEOUT_MS` / `SEARCH_CACHE_TTL_SEC` | `6000` / `600` | Per-search timeout; result cache TTL |
 | `CLOCK_OVERRIDE` | — | Dev only: pretend "now" is this ISO-8601 instant |
@@ -220,12 +222,12 @@ The UI uses these; they're handy for scripting too (add `-u minimi:$ACCESS_TOKEN
 | Method & path | Purpose |
 |---|---|
 | `GET /health` | Liveness/readiness (public, even with auth on) |
-| `POST /api/chat` | Stream an answer (SSE). Body: `{ message, conversationId?, tz?, model?, approvalMode?, attachmentIds?, regenerateTurnId? }`. Events: `conversation`, `memory`, `status`, `search_start`, `search_done`, `approval_request`, `token`, `sources`, `done`, `error` |
+| `POST /api/chat` | Stream an answer (SSE). Body: `{ message, conversationId?, tz?, model?, approvalMode?, attachmentIds?, regenerateTurnId? }`. Events: `conversation`, `memory`, `status`, `search_start`, `search_done`, `tool_start`, `tool_done`, `approval_request`, `approval_result`, `token`, `sources`, `done`, `error` |
 | `GET /api/conversations` · `GET/PATCH/DELETE /api/conversations/:id` | List, read, rename/pin/move, delete chats |
 | `POST /api/projects` · `PATCH/DELETE /api/projects/:id` | Manage projects (folders) |
 | `GET /api/search?q=` | Search across chats |
-| `POST /api/attachments` · `GET /api/attachments[/:id]` · `DELETE /api/attachments/:id` | Text-file attachments |
-| `POST /api/approve` · `POST /api/feedback` | Resolve a search approval · save thumbs up/down |
+| `POST /api/attachments` · `GET /api/attachments[/:id]` · `DELETE /api/attachments/:id` | Attachments: text, CSV, PDF, XLSX (binary files are sent as `contentBase64`; text is extracted once at upload) |
+| `POST /api/approve` · `POST /api/feedback` | Resolve a tool approval · save thumbs up/down |
 | `GET /api/runs` · `GET /api/runs/:id` · `GET /api/trace/:turnId` | Execution traces per question |
 | `GET /api/stats` | Usage analytics |
 | `GET /api/integrations` · `PUT /api/integrations/tavily` · `POST /api/integrations/test` | Connector status, set search key, connectivity test |
@@ -268,3 +270,21 @@ The chip next to the attach button in the composer controls when the agent asks 
 | **Full access** | Never asks. Turning it on requires a one-time confirmation. |
 
 The server validates the value and falls back to **Approve for me** for anything it does not recognise. Requests from older clients that send `approval: true` are treated as **Request approval**.
+
+## Agent tools
+
+Tools live in `src/tools/` and are registered in one place, `src/tools/registry.ts`. A tool is a single
+`ToolDefinition` (schema, validation, `run`, timeout, per-turn limit, approval policy); the loop, permission gate and
+UI derive everything else from it, so adding a tool is: write the definition, add it to `BUILTIN_TOOLS`.
+
+| Tool | What it does | Approval |
+|---|---|---|
+| `web_search` | Tavily (or keyless fallback) search with citations | only in "request" mode |
+| `fetch_url` | Reads one public page (readability or PDF), SSRF-hardened, cited | "request" mode, or when the URL looks private |
+| `calculate` | Math, percentages, units, date arithmetic, time zones (no `eval`) | never |
+| `read_attachment` | Outline / read / search / table stats for uploaded PDF, CSV, XLSX, text | never |
+| `save_memory` | Save, update, forget, list, search facts you asked it to remember | every write |
+| `memory_search` / `lookup_claims` | Search earlier chats / structured facts from earlier answers | never |
+
+Approval modes (composer): `request` asks before network actions, `auto` asks only for risky actions (memory writes,
+private-looking URLs), `full` never asks.
