@@ -248,6 +248,7 @@ export function ChatView(props: ChatViewProps) {
   const skills = useMemo(() => {
     const s: string[] = [];
     if (cards.length > 0 || (run?.batches.length ?? 0) > 0) s.push("web_search");
+    for (const c of cards) if (c.tool && !s.includes(c.tool)) s.push(c.tool);
     if ((run?.memory ?? last?.memory)?.status && (run?.memory ?? last?.memory)?.status !== "none") s.push("memory_recall");
     return s;
   }, [cards.length, run, last]);

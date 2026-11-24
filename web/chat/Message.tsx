@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useState } from "react";
 import type { UiMessage, Toast } from "./types";
 import { MessageActions, MessageText, type MessageActionKey } from "./MessageActions";
 import { ApprovalCard, MemoryCard, SearchCard } from "./ToolCards";
+import { runningStatus } from "./tools";
 import { FileIcon, LinkOut } from "./icons";
 import { hostOf, plainText, renderMarkdown } from "./markdown";
 
@@ -72,7 +73,7 @@ function AssistantMessageImpl({ m, isLatest, busy, speaking, canSpeak, toast, on
       {streaming && !text && !m.approval && (
         <div className="am__thinking" role="status">
           <span className="dots" aria-hidden="true"><i /><i /><i /></span>
-          <span className="am__status">{m.status || (cards.some((c) => c.status === "running") ? "Searching the web…" : "Thinking…")}</span>
+          <span className="am__status">{m.status || runningStatus(cards) || "Thinking…"}</span>
         </div>
       )}
 

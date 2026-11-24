@@ -5,9 +5,7 @@ import type { ChatSettings, Toast } from "./types";
 import { ArrowUp, Chevron, Close, FileIcon, Mic, Paperclip, Plus, Spinner, StopSquare } from "./icons";
 import { ApprovalMenu } from "./ApprovalMenu";
 
-const MAX_BYTES = 500_000;
-const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|log|ts|tsx|js|jsx|mjs|py|go|rs|java|c|h|cpp|html|css|sql|sh|yml|yaml|xml|toml|ini|env)$/i;
-const ACCEPT = ".txt,.md,.markdown,.csv,.tsv,.json,.log,.ts,.tsx,.js,.jsx,.mjs,.py,.go,.rs,.java,.c,.h,.cpp,.html,.css,.sql,.sh,.yml,.yaml,.xml,.toml,.ini,text/*";
+import { ACCEPT, bytesToBase64, classifyFile, fileKindLabel, validateFile } from "./attach";
 
 type Att = { localId: string; name: string; status: "uploading" | "done" | "error"; ref?: AttachmentRef; error?: string };
 
@@ -80,19 +78,25 @@ export function Composer({ variant = "dock", streaming, hasMessages, conversatio
   const addFiles = async (files: FileList | File[]) => {
     for (const file of Array.from(files)) {
       const localId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      const reject = (msg: string) => toast(`${file.name}: ${msg}`, "error");
-      if (file.size > MAX_BYTES) { reject("too large (max 500 KB)"); continue; }
-      if (!TEXT_EXT.test(file.name) && !file.type.startsWith("text/") && file.type !== "application/json") { reject("only text files are supported"); continue; }
+      const invalid = validateFile(file);
+      if (invalid) { toast(`${file.name}: ${invalid}`, "error"); continue; }
       setAtts((a) => [...a, { localId, name: file.name, status: "uploading" }]);
       try {
-        const content = await file.text();
-        if (!content.trim()) throw new Error("file is empty");
-        const ref = await api.uploadFile({ name: file.name, mime: file.type || undefined, content, conversationId });
+        let ref: AttachmentRef;
+        if (classifyFile(file.name, file.type) === "text") {
+          const content = await file.text();
+          if (!content.trim()) throw new Error("file is empty");
+          ref = await api.uploadFile({ name: file.name, mime: file.type || undefined, content, conversationId });
+        } else {
+          // PDF / XLSX: raw bytes as base64; the server extracts the text.
+          const contentBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+          ref = await api.uploadBinary({ name: file.name, mime: file.type || undefined, contentBase64, conversationId });
+        }
         setAtts((a) => a.map((x) => (x.localId === localId ? { ...x, status: "done", ref } : x)));
       } catch (e) {
+        // Keep the chip with the server's message (413 / 415 / 400 / 422) so it is readable next to the file; the user can remove it.
         const msg = e instanceof Error ? e.message : "upload failed";
-        setAtts((a) => a.filter((x) => x.localId !== localId));
-        reject(msg);
+        setAtts((a) => a.map((x) => (x.localId === localId ? { ...x, status: "error", error: msg } : x)));
       }
     }
   };
@@ -186,7 +190,9 @@ export function Composer({ variant = "dock", streaming, hasMessages, conversatio
           {atts.map((a) => (
             <li key={a.localId} className="cp__att" data-status={a.status}>
               {a.status === "uploading" ? <Spinner size={12} /> : <FileIcon />}
-              <span className="cp__attname">{a.name}</span>
+              <span className="cp__attkind">{fileKindLabel(a.name)}</span>
+              <span className="cp__attname" title={a.name}>{a.name}</span>
+              {a.status === "error" && <span className="cp__atterr" role="alert">{a.error}</span>}
               <button type="button" aria-label={`Remove ${a.name}`} onClick={() => removeAtt(a)}><Close size={12} /></button>
             </li>
           ))}
@@ -218,8 +224,8 @@ export function Composer({ variant = "dock", streaming, hasMessages, conversatio
             aria-label="Add"
             items={[
               {
-                label: "Attach text file",
-                description: ".txt .md .csv .json and code, up to 500 KB",
+                label: "Attach file",
+                description: "PDF, XLSX (10 MB) · CSV, text and code (500 KB)",
                 icon: <Paperclip />,
                 onSelect: () => fileInput.current?.click(),
               },

@@ -27,7 +27,14 @@ const envSchema = z.object({
   DEFAULT_TZ: z.string().default("Asia/Kolkata"),
   CLOCK_OVERRIDE: z.string().optional(),
   NODE_ENV: z.string().optional(),
-  MAX_STEPS: z.coerce.number().default(4),
+  /** Model<->tool rounds per turn. The last step withholds tools so the model must answer: 6 steps = up to 5 tool rounds. */
+  MAX_STEPS: z.coerce.number().int().min(1).default(6),
+  /** Global cap on executed (non-duplicate) tool calls per turn, across all tools. */
+  MAX_TOOL_CALLS_PER_TURN: z.coerce.number().int().min(1).default(24),
+  /** Max tool calls running at the same time inside one step. */
+  MAX_PARALLEL_TOOLS: z.coerce.number().int().min(1).default(6),
+  /** Token budget (estimated, ~3.5 chars/token) for earlier chat messages sent to the model. */
+  HISTORY_TOKEN_BUDGET: z.coerce.number().int().min(500).default(6000),
   MAX_SEARCHES_PER_STEP: z.coerce.number().default(12),
   MAX_SEARCHES_PER_TURN: z.coerce.number().default(16),
   SEARCH_TIMEOUT_MS: z.coerce.number().default(6000),

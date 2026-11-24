@@ -1,10 +1,11 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 import { z } from "zod";
 import { bm25Score, tokenize } from "../memory/bm25.js";
-import type { MemoryStore, TurnWithContent } from "../memory/store.js";
+import { MemoryStore, type TurnWithContent } from "../memory/store.js";
+import { ToolInputError, type ToolDefinition } from "./types.js";
 import { getClock } from "../clock.js";
 
-/** Called from src/tools/registry.ts. Reads turns via MemoryStore (schema.sql turns/messages); no writes. No model-invoked memory tool exists today (recall is auto-only). User: add more tools. */
+/** Called from src/tools/registry.ts. Reads turns via MemoryStore (schema.sql turns/messages); no writes. The model-invoked complement of the automatic <memory> recall. */
 export const MEMORY_SEARCH_TOOL: Tool = {
   name: "memory_search",
   description:
@@ -27,6 +28,26 @@ export const MEMORY_SEARCH_TOOL: Tool = {
     },
     required: ["query"],
   },
+};
+
+/** Registry definition (src/tools/registry.ts). */
+export const memorySearchTool: ToolDefinition<{ query: string; date?: string; limit?: number }> = {
+  name: "memory_search",
+  schema: MEMORY_SEARCH_TOOL,
+  effect: "read",
+  actionLabel: "Memory search",
+  needs: ["db"],
+  label: (raw) => (raw && typeof raw === "object" && typeof (raw as { query?: unknown }).query === "string" ? (raw as { query: string }).query : "") || "memory search",
+  validate: (raw) => {
+    const p = inputSchema.safeParse(raw);
+    if (!p.success) throw new ToolInputError("invalid memory_search input");
+    return p.data;
+  },
+  run: async (input, ctx) => {
+    const res = runMemorySearch(ctx.store ?? new MemoryStore(ctx.db), input);
+    return { content: res.xml, label: res.query, error: res.error };
+  },
+  errorContent: (_label, error) => `<memory_results error="${esc(error)}"/>`,
 };
 
 const inputSchema = z.object({

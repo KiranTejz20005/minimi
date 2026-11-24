@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { bytesToBase64, classifyFile, validateFile } from "../chat/attach";
 import { api, type AttachmentRef, type FileRow, type Project } from "../api";
 import { FOLDER_COLORS, FOLDER_COLOR_ORDER, FolderIcon, IconChat, IconDownload, IconFile, IconFolder, IconGrid, IconList, IconPlus, IconSearch, IconTrash, IconUpload } from "../shell/icons";
 import { useToast } from "../shell/toast";
@@ -10,9 +11,9 @@ import { errMsg, fmtBytes, relTime, useStored } from "../shell/util";
 /* Callers: App.tsx Files route. User: folders end to end (create/rename/delete, upload into a folder,
    move files, detail page, filters/sort), document-style cards like the reference screens. */
 
-const KIND_LABEL: Record<string, string> = { MD: "MD", CSV: "CSV", JSON: "JSON", CODE: "CODE", TXT: "TXT" };
-const KIND_NAME: Record<string, string> = { MD: "Markdown", CSV: "Spreadsheet", JSON: "JSON", CODE: "Code", TXT: "Text" };
-const ACCEPT = "text/*,.md,.csv,.json,.ts,.tsx,.js,.jsx,.py,.go,.rs,.java,.html,.css,.sql,.sh,.yml,.yaml,.xml,.txt,.log";
+const KIND_LABEL: Record<string, string> = { MD: "MD", CSV: "CSV", JSON: "JSON", CODE: "CODE", TXT: "TXT", PDF: "PDF", XLSX: "XLSX" };
+const KIND_NAME: Record<string, string> = { MD: "Markdown", CSV: "Spreadsheet", JSON: "JSON", CODE: "Code", TXT: "Text", PDF: "PDF document", XLSX: "Excel workbook" };
+const ACCEPT = `.pdf,.xlsx,text/*,.md,.csv,.json,.ts,.tsx,.js,.jsx,.py,.go,.rs,.java,.html,.css,.sql,.sh,.yml,.yaml,.xml,.txt,.log`;
 
 type FolderFilter = "all" | "with" | "empty";
 type FolderSort = "recent" | "name" | "files";
@@ -126,9 +127,15 @@ export function FilesView({
     let ok = 0;
     for (const f of arr) {
       try {
-        if (f.size > 500_000) throw new Error("larger than 500 KB");
-        const content = await f.text();
-        await api.uploadFile({ name: f.name, mime: f.type || undefined, content, projectId: openId ?? undefined });
+        const invalid = validateFile(f);
+        if (invalid) throw new Error(invalid);
+        if (classifyFile(f.name, f.type) === "text") {
+          const content = await f.text();
+          await api.uploadFile({ name: f.name, mime: f.type || undefined, content, projectId: openId ?? undefined });
+        } else {
+          const contentBase64 = bytesToBase64(new Uint8Array(await f.arrayBuffer()));
+          await api.uploadBinary({ name: f.name, mime: f.type || undefined, contentBase64, projectId: openId ?? undefined });
+        }
         ok++;
       } catch (e) {
         toast(`${f.name}: ${errMsg(e)}`, "error");

@@ -1,76 +1,173 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
-import type { DatabaseSync } from "node:sqlite";
-import type { SearchProvider } from "../search/types.js";
-import {
-  WEB_SEARCH_TOOL,
-  TurnCitationRegistry,
-  getSearchRunner,
-  searchCapRemaining,
-} from "../search/tool.js";
-import { MemoryStore } from "../memory/store.js";
-import { FETCH_URL_TOOL, runFetchUrl } from "./fetch-url.js";
-import { MEMORY_SEARCH_TOOL, runMemorySearch } from "./memory-search.js";
-import { LOOKUP_CLAIMS_TOOL, runLookupClaims } from "./lookup-claims.js";
 import { getConfig } from "../config.js";
+import { fetchUrlTool } from "./fetch-url.js";
+import { lookupClaimsTool } from "./lookup-claims.js";
+import { memorySearchTool } from "./memory-search.js";
+import { webSearchTool } from "./web-search.js";
+import { calculateTool } from "./calculate.js";
+import { readAttachmentTool } from "./read-attachment.js";
+import { saveMemoryTool } from "./save-memory.js";
+import {
+  ToolInputError,
+  type ToolContext,
+  type ToolDefinition,
+  type ToolExecResult,
+  type ToolSearchMeta,
+} from "./types.js";
 
-/** Called from src/agent/loop.ts. Replaces single SEARCH_TOOL list — no multi-tool registry exists. User: add more tools. */
-export const AGENT_TOOLS: Tool[] = [
-  WEB_SEARCH_TOOL,
-  FETCH_URL_TOOL,
-  MEMORY_SEARCH_TOOL,
-  LOOKUP_CLAIMS_TOOL,
+export { ToolInputError };
+export type { ToolContext, ToolDefinition, ToolExecResult };
+
+/**
+ * Single source of truth for the tools the model can call.
+ * To add a tool: export a ToolDefinition from its own file and list it here. That is the whole integration:
+ * the schema the model sees, validation, limits, timeouts, approvals, UI labels and dispatch all derive from it.
+ */
+const BUILTIN_TOOLS: ToolDefinition[] = [
+  webSearchTool,
+  fetchUrlTool,
+  memorySearchTool,
+  lookupClaimsTool,
+  calculateTool,
+  readAttachmentTool,
+  saveMemoryTool,
 ];
 
-export type ToolContext = {
-  db: DatabaseSync;
-  store?: MemoryStore;
-  searchProvider?: SearchProvider;
-  registry: TurnCitationRegistry;
-  signal?: AbortSignal;
-  searchesUsed: number;
-  fetchesUsed: number;
-};
+const tools = new Map<string, ToolDefinition>();
 
-export type ToolExecResult = {
-  id: string;
-  name: string;
-  label: string;
-  content: string;
-  ms: number;
-  search?: {
-    query: string;
-    count: number;
-    cached: boolean;
-    results?: { title: string; url: string }[];
-    error?: string;
-  };
-  error?: string;
-  declined?: boolean;
-};
+/** Live list handed to the LLM adapters. Mutated by registerTool so late registrations are visible. */
+export const AGENT_TOOLS: Tool[] = [];
 
-const MAX_FETCHES_PER_TURN = 6;
+export function registerTool(def: ToolDefinition): void {
+  if (def.name !== def.schema.name) throw new Error(`tool ${def.name}: schema.name is ${def.schema.name}`);
+  if (tools.has(def.name)) throw new Error(`tool ${def.name} is already registered`);
+  tools.set(def.name, def);
+  AGENT_TOOLS.push(def.schema);
+}
 
+/** Test seam: remove a tool registered by a test. */
+export function unregisterTool(name: string): void {
+  tools.delete(name);
+  const i = AGENT_TOOLS.findIndex((t) => t.name === name);
+  if (i >= 0) AGENT_TOOLS.splice(i, 1);
+}
+
+export function getTool(name: string): ToolDefinition | undefined {
+  return tools.get(name);
+}
+
+export function listTools(): ToolDefinition[] {
+  return [...tools.values()];
+}
+
+for (const t of BUILTIN_TOOLS) registerTool(t);
+
+/** UI/approval label for a call; safe for unknown tools and malformed input. */
 export function labelForCall(name: string, input: unknown): string {
-  if (name === "web_search") return field(input, "query") || "web search";
-  if (name === "fetch_url") return field(input, "url") || "fetch page";
-  if (name === "memory_search") return field(input, "query") || "memory search";
-  if (name === "lookup_claims") return field(input, "query") || "lookup claims";
-  return name;
-}
-
-function field(input: unknown, key: string): string {
-  if (input && typeof input === "object" && key in input) {
-    return String((input as Record<string, unknown>)[key] ?? "");
+  const def = tools.get(name);
+  try {
+    const l = def?.label?.(input);
+    if (l) return l;
+  } catch {
+    /* fall through */
   }
-  return "";
+  return def?.actionLabel ?? name;
 }
 
+/** Max tool calls the loop will run in one step (the rest get an explicit "limit" result). */
+export function stepToolBudget(): number {
+  return Math.max(getConfig().MAX_SEARCHES_PER_STEP, 6);
+}
+
+export function maxPerTurn(def: ToolDefinition): number {
+  const m = def.maxPerTurn;
+  return typeof m === "function" ? m() : (m ?? Infinity);
+}
+
+/** Order-independent JSON so {a,b} and {b,a} dedupe to the same key. */
+export function stableStringify(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(",")}]`;
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o)
+      .filter((k) => o[k] !== undefined)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${stableStringify(o[k])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(v) ?? "null";
+}
+
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
+function defaultError(name: string, error: string): string {
+  return `<tool_error name="${esc(name)}" error="${esc(error)}"/>`;
+}
+
+function searchMeta(def: ToolDefinition | undefined, label: string, error: string): ToolSearchMeta | undefined {
+  return def?.isSearch ? { query: label, count: 0, cached: false, error, results: [] } : undefined;
+}
+
+function failed(
+  call: { id: string; name: string },
+  def: ToolDefinition | undefined,
+  label: string,
+  error: string,
+  ms = 0,
+): ToolExecResult {
+  return {
+    id: call.id,
+    name: call.name,
+    label,
+    ms,
+    error,
+    content: def?.errorContent ? def.errorContent(label, error) : defaultError(call.name, error),
+    search: searchMeta(def, label, error),
+  };
+}
+
+/** Errors worth one more try: network blips, 429/5xx, timeouts of an upstream. Never user mistakes. */
+export function isTransientError(msg: string): boolean {
+  return /timeout|timed out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|socket hang up|fetch failed|HTTP (429|5\d\d)|\b(429|502|503|504)\b/i.test(
+    msg,
+  );
+}
+
+/** Settles with the promise, or rejects with an AbortError as soon as `signal` aborts (the promise is left to finish on its own). */
+function raceAbort<T>(p: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return p;
+  if (signal.aborted) return Promise.reject(new DOMException("aborted", "AbortError"));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new DOMException("aborted", "AbortError"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    p.then(
+      (v) => (signal.removeEventListener("abort", onAbort), resolve(v)),
+      (e) => (signal.removeEventListener("abort", onAbort), reject(e)),
+    );
+  });
+}
+
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => (clearTimeout(t), resolve()), { once: true });
+  });
+
+/**
+ * Generic dispatcher. Order: lookup → decline → resources → validate → duplicate → per-turn limit → run
+ * (timeout + bounded retry for read tools) → count. Never throws: every failure becomes a tool result the
+ * model can read, so one tool failing never takes down its parallel siblings.
+ */
 export async function executeToolCall(
   call: { id: string; name: string; input: unknown },
   ctx: ToolContext,
   allowed: boolean,
 ): Promise<ToolExecResult> {
+  const def = tools.get(call.name);
   const label = labelForCall(call.name, call.input);
+  if (!def) return failed(call, undefined, label, "unknown tool");
 
   if (!allowed) {
     return {
@@ -80,125 +177,76 @@ export async function executeToolCall(
       ms: 0,
       declined: true,
       error: "declined by user",
-      content: declinedXml(call.name, label),
-      search:
-        call.name === "web_search"
-          ? { query: label, count: 0, cached: false, error: "declined by user", results: [] }
-          : undefined,
+      content: def.declined ? def.declined(label) : defaultError(call.name, "declined by user"),
+      search: searchMeta(def, label, "declined by user"),
     };
   }
 
-  if (call.name === "web_search") {
-    if (searchCapRemaining(ctx.searchesUsed) <= 0) {
-      return {
+  for (const need of def.needs ?? []) {
+    if (need === "db" && !ctx.db) return failed(call, def, label, "memory database unavailable");
+  }
+
+  let input: unknown;
+  try {
+    input = def.validate(call.input);
+  } catch (e) {
+    const msg = e instanceof ToolInputError ? e.message : `invalid ${call.name} input`;
+    return failed(call, def, label, msg);
+  }
+
+  // Duplicate prevention: identical read-only call earlier this turn → reuse the answer, don't re-run.
+  const seen = (ctx.seen ??= new Map());
+  const key = def.effect === "write" ? null : `${call.name}:${def.dedupeKey ? def.dedupeKey(input) : stableStringify(input)}`;
+  const prior = key ? seen.get(key) : undefined;
+  if (prior) return { ...prior, id: call.id, ms: 0, duplicate: true };
+
+  const limit = maxPerTurn(def);
+  if ((ctx.counts[call.name] ?? 0) >= limit) {
+    return failed(call, def, label, `${call.name} limit reached for this turn`);
+  }
+
+  ctx.counts[call.name] = (ctx.counts[call.name] ?? 0) + 1; // before any await: parallel siblings must see it
+  const t0 = Date.now();
+  const attempts = def.effect === "write" ? 1 : 1 + Math.max(0, def.retry?.retries ?? 0);
+  let out: ToolExecResult | null = null;
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const signals = [ctx.signal, def.timeoutMs ? AbortSignal.timeout(def.timeoutMs) : undefined].filter(
+      (s): s is AbortSignal => !!s,
+    );
+    const signal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
+    let error: string | undefined;
+    try {
+      // Race the turn's cancel signal: a tool that ignores its signal must not keep a cancelled turn waiting.
+      const res = await raceAbort(def.run(input, { ...ctx, signal }), ctx.signal);
+      out = {
         id: call.id,
         name: call.name,
-        label,
-        ms: 0,
-        error: "search limit reached for this turn",
-        content: `<search_results query="${esc(label)}" error="search limit reached for this turn"/>`,
-        search: {
-          query: label,
-          count: 0,
-          cached: false,
-          error: "search limit reached for this turn",
-          results: [],
-        },
-      };
-    }
-    const runner = getSearchRunner(ctx.searchProvider);
-    const res = await runner.run(call.input, ctx.registry, ctx.signal);
-    ctx.searchesUsed += 1;
-    return {
-      id: call.id,
-      name: call.name,
-      label: res.query || label,
-      content: res.xml,
-      ms: res.ms,
-      error: res.error,
-      search: {
-        query: res.query,
-        count: res.count,
-        cached: res.cached,
-        results: (res.sources ?? []).map((s) => ({ title: s.title, url: s.url })),
+        label: res.label || label,
+        content: res.content,
+        ms: Date.now() - t0,
         error: res.error,
-      },
-    };
-  }
-
-  if (call.name === "fetch_url") {
-    if (ctx.fetchesUsed >= MAX_FETCHES_PER_TURN) {
-      return {
-        id: call.id,
-        name: call.name,
-        label,
-        ms: 0,
-        error: "fetch limit reached for this turn",
-        content: `<page url="${esc(label)}" error="fetch limit reached for this turn"/>`,
+        search: res.search,
       };
+      error = res.error;
+    } catch (e) {
+      const aborted = ctx.signal?.aborted;
+      error = aborted
+        ? "cancelled"
+        : e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")
+          ? `timeout after ${Math.round((def.timeoutMs ?? 0) / 1000)}s`
+          : e instanceof Error
+            ? e.message
+            : "tool failed";
+      out = failed(call, def, label, error, Date.now() - t0);
     }
-    const res = await runFetchUrl(call.input, ctx.signal);
-    ctx.fetchesUsed += 1;
-    return {
-      id: call.id,
-      name: call.name,
-      label: res.url || label,
-      content: res.xml,
-      ms: res.ms,
-      error: res.error,
-    };
+    const retryable = !!error && !ctx.signal?.aborted && attempt < attempts - 1 && isTransientError(error);
+    if (!retryable) break;
+    await sleep((def.retry?.backoffMs ?? 300) * (attempt + 1), ctx.signal);
   }
 
-  if (call.name === "memory_search") {
-    const store = ctx.store ?? new MemoryStore(ctx.db);
-    const res = runMemorySearch(store, call.input);
-    return {
-      id: call.id,
-      name: call.name,
-      label: res.query || label,
-      content: res.xml,
-      ms: res.ms,
-      error: res.error,
-    };
-  }
-
-  if (call.name === "lookup_claims") {
-    const res = runLookupClaims(ctx.db, call.input);
-    return {
-      id: call.id,
-      name: call.name,
-      label: res.query || label,
-      content: res.xml,
-      ms: res.ms,
-      error: res.error,
-    };
-  }
-
-  return {
-    id: call.id,
-    name: call.name,
-    label,
-    ms: 0,
-    error: `unknown tool ${call.name}`,
-    content: `<tool_error name="${esc(call.name)}" error="unknown tool"/>`,
-  };
-}
-
-function declinedXml(name: string, label: string): string {
-  if (name === "web_search") {
-    return `<search_results query="${esc(label)}" error="the user declined this web search; answer from what you know and say so"/>`;
-  }
-  if (name === "fetch_url") {
-    return `<page url="${esc(label)}" error="the user declined this page fetch"/>`;
-  }
-  return `<tool_error name="${esc(name)}" error="declined by user"/>`;
-}
-
-function esc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-}
-
-export function stepToolBudget(): number {
-  const cfg = getConfig();
-  return Math.max(cfg.MAX_SEARCHES_PER_STEP, 6);
+  const result = out!;
+  // Only successful results are reusable; a failed call may legitimately be retried by the model.
+  if (key && !result.error) seen.set(key, result);
+  return result;
 }

@@ -1,5 +1,9 @@
 import { useSyncExternalStore } from "react";
-import type { PendingApproval } from "./contract";
+import type { PendingApproval as BaseApproval } from "./contract";
+import type { ApprovalAction } from "./tools";
+
+/** contract.ts is lead-owned; `actions` (verb + exact label) is an optional extension carried through the store. */
+export type PendingApproval = BaseApproval & { actions?: ApprovalAction[] };
 
 /** Tiny shared store of approvals. Chat writes; Runs reads pending + recent resolved. */
 export type ResolvedApproval = PendingApproval & {
