@@ -10,7 +10,7 @@
   --text: #f6f6f7;
   --text-2: #d6d6db;
   --muted: #a3a3ac;
-  --faint: #7a7a83;
+  --faint: #8a8a93; /* 5.1:1 on --sidebar */
   --accent: #4da3ff;
   --accent-soft: rgba(77, 163, 255, 0.14);
   --green: #4cc38a;
@@ -67,8 +67,8 @@
   --border-strong: #d2d2d8;
   --text: #17171a;
   --text-2: #45454c;
-  --muted: #73737c;
-  --faint: #a2a2ab;
+  --muted: #5f5f69; /* 5.0:1 on --sidebar, 6.2:1 on white */
+  --faint: #6b6b75; /* 4.6:1 on --sidebar, 5.2:1 on white */
   --accent: #0b64e0;
   --accent-soft: rgba(11, 100, 224, 0.1);
   --green: #1e8a4f;
@@ -84,6 +84,12 @@
   --aui-focus: rgba(11, 100, 224, 0.7);
   --aui-shadow-card: 0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
   color-scheme: light;
+}
+
+/* Increase Contrast: stronger text tiers and hairlines */
+@media (prefers-contrast: more) {
+  :root { --muted: #c4c4cc; --faint: #a9a9b2; --border: #4a4a52; --border-strong: #6a6a73; }
+  :root[data-theme="light"] { --muted: #45454c; --faint: #55555e; --border: #9a9aa3; --border-strong: #707079; }
 }
 
 *, *::before, *::after { box-sizing: border-box; }

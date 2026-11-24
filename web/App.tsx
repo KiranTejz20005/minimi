@@ -54,7 +54,13 @@ function Shell() {
   const [route, setRoute] = useState<Route>(parseLocation);
   const [collapsedPref, setCollapsedPref] = useStored<boolean>("minimi.sidebar.collapsed", false);
   const narrow = useMediaQuery("(max-width: 899px)");
-  const collapsed = narrow || collapsedPref;
+  // On narrow windows the sidebar starts collapsed, but the user can still open it.
+  const [narrowOpen, setNarrowOpen] = useState(false);
+  const collapsed = narrow ? !narrowOpen : collapsedPref;
+  const toggleSidebar = useCallback(() => {
+    if (narrow) setNarrowOpen((o) => !o);
+    else setCollapsedPref(!collapsedPref);
+  }, [narrow, collapsedPref, setCollapsedPref]);
   const [userName, setUserName] = useStored<string>("minimi.name", "You");
   // Settings saves the display name and announces it, so the sidebar row updates without a reload.
   useEffect(() => {
@@ -151,12 +157,12 @@ function Shell() {
         newChat();
       } else if (k === "b" && !e.shiftKey && !e.altKey) {
         e.preventDefault();
-        setCollapsedPref(!collapsedPref);
+        toggleSidebar();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [newChat, collapsedPref, setCollapsedPref]);
+  }, [newChat, toggleSidebar]);
 
   /* ── actions, wrapped so deleting the open chat leaves it ── */
   const actions = useMemo(
@@ -179,10 +185,10 @@ function Shell() {
       files: () => go({ view: "files" }),
       analytics: () => go({ view: "analytics" }),
       integrations: () => setDialog("integrations"),
-      toggleSidebar: () => setCollapsedPref(!collapsedPref),
+      toggleSidebar,
       toggleTheme: () => setTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light"),
     }),
-    [newChat, go, collapsedPref, setCollapsedPref, setTheme],
+    [newChat, go, toggleSidebar, setTheme],
   );
 
   const activeChatId = route.view === "chat" ? route.id : undefined;
@@ -200,12 +206,12 @@ function Shell() {
         activeChatId={activeChatId}
         view={route.view}
         collapsed={collapsed}
-        forcedCollapsed={narrow}
+        forcedCollapsed={false}
         pendingCount={pending.length}
         userName={userName}
         theme={theme}
         newProjectSignal={newProjectSignal}
-        onToggleCollapsed={() => setCollapsedPref(!collapsedPref)}
+        onToggleCollapsed={toggleSidebar}
         onNewChat={newChat}
         onOpenChat={openChat}
         onNav={(v) => go(v === "chat" ? { view: "chat", id: keptChat.current } : { view: v })}
@@ -215,7 +221,10 @@ function Shell() {
         onOpenShortcuts={() => setDialog("shortcuts")}
         onSetTheme={setTheme}
         onNewProject={() => {
-          if (collapsedPref && !narrow) setCollapsedPref(false);
+          if (collapsed) {
+            if (narrow) setNarrowOpen(true);
+            else setCollapsedPref(false);
+          }
           setNewProjectSignal((n) => n + 1);
         }}
         actions={actions}
