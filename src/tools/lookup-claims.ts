@@ -72,18 +72,31 @@ export function runLookupClaims(db: DatabaseSync, raw: unknown): LookupClaimsRes
   }
   const q = parsed.data.query.trim();
   const limit = parsed.data.limit ?? 10;
-  const like = `%${q.replace(/[%_]/g, "")}%`;
+  // Each word may match any field (subject / attribute / value / source), so "Postgres hosting price" finds
+  // subject "Postgres" + attribute "hosting price"; a phrase that must sit inside one field would find nothing.
+  const words = q
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 1)
+    .slice(0, 6);
+  const terms = words.length ? words : [q.replace(/[%_]/g, "")];
+  const clause = terms
+    .map(() => "(c.subject LIKE ? OR c.attribute LIKE ? OR c.value LIKE ? OR IFNULL(c.source_url,'') LIKE ?)")
+    .join(" AND ");
+  const params: (string | number)[] = terms.flatMap((w) => {
+    const like = "%" + w.replace(/[%_]/g, "") + "%";
+    return [like, like, like, like];
+  });
   const rows = db
     .prepare(
       `SELECT c.subject, c.attribute, c.value, c.as_of, c.source_url, c.volatility, t.local_date
        FROM claims c
        JOIN turns t ON t.id = c.turn_id
-       WHERE t.status = 'ok'
-         AND (c.subject LIKE ? OR c.attribute LIKE ? OR c.value LIKE ? OR IFNULL(c.source_url,'') LIKE ?)
+       WHERE t.status = 'ok' AND ${clause}
        ORDER BY t.created_at DESC
        LIMIT ?`,
     )
-    .all(like, like, like, like, limit) as {
+    .all(...params, limit) as {
     subject: string;
     attribute: string;
     value: string;
