@@ -170,7 +170,7 @@ function resolveUnit(raw: string): Resolved {
 
   if (CURRENCY.has(lower)) {
     throw new CalcError(
-      `currency conversion is not supported (exchange rates change); use web_search for current rates ("${excerpt(name)}")`,
+      `currency conversion is not supported (exchange rates change); use the convert_currency tool for current rates ("${excerpt(name)}")`,
     );
   }
   throw new CalcError(`unknown unit "${excerpt(name)}"`);

@@ -17,12 +17,12 @@ const CASES: [string, boolean][] = [
   ["when does GTA 6 release", true],
   ["Who won the match last night? score today", true],
   ["current price of bitcoin", true],
-  ["weather in Mumbai tomorrow", true],
+  ["weather in Mumbai tomorrow", false], // get_weather tool, not a forced web search
   ["nvidia stock price", true],
   ["Who is the CEO of OpenAI?", true],
   ["Any news about the Mars mission this week?", true],
-  ["what's the exchange rate usd to inr", true],
-  ["convert 100 USD to INR", true],
+  ["what's the exchange rate usd to inr", false], // convert_currency tool
+  ["convert 100 USD to INR", false], // convert_currency tool
   ["upcoming movies in 2027", true],
   ["is the new Claude model out yet? latest version", true],
   ["aaj ka mausam kaisa hai today", true],
