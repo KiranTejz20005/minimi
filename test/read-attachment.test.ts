@@ -98,11 +98,19 @@ describe("PDF", () => {
     const o = await call("c1", { action: "outline" });
     expect(o.content).toContain("pages: 5");
     const r = await call("c1", { action: "read", page: 3 });
+    // A read fills its window with the following whole pages (fewer calls per document), never earlier pages.
     expect(r.content).toContain('page="3"');
+    expect(r.content).toContain('page="4"');
+    expect(r.content).toContain('page="5"');
     expect(r.content).toContain("bananas");
+    expect(r.content).toContain("grapes");
     expect(r.content).not.toContain("oranges");
     expect(r.content).toContain('of="5"');
-    expect(r.content).toContain('next="read page=4"');
+    expect(r.content).toContain("end of document");
+    expect(r.label).toBe("pages 3-5");
+    // starting from page 1 returns the whole short document in one call
+    const all = await call("c1", { action: "read", page: 1 });
+    for (const w of ["apples", "oranges", "bananas", "quarterly revenue growth", "grapes"]) expect(all.content).toContain(w);
     const last = await call("c1", { action: "read", page: 5 });
     expect(last.content).toContain("end of document");
     expect((await call("c1", { action: "read", page: 6 })).error).toMatch(/out of range/);

@@ -29,6 +29,7 @@ import { createTraceWriter } from "../trace.js";
 import { newId } from "../util/ids.js";
 import { buildContext } from "./context.js";
 import { renderSavedMemoryBlock } from "../memory/saved.js";
+import { runMemorySearch } from "../tools/memory-search.js";
 import { revokeTurnAttachments } from "../files/doc.js";
 import { renderRecentToolResults, saveToolResults } from "./tool-history.js";
 import { composeUserContext, readPrefs } from "../preferences.js";
@@ -57,7 +58,9 @@ const FRESH_CUE_INTL =
   /(今天|今日|最新|新闻|新聞|天气|天氣|股价|आज|मौसम|समाचार|खबर|\bhoy\b|noticias|aujourd'?hui|actualités|météo|\bheute\b|nachrichten|wetter|\bclima\b)/i;
 const CURRENCY_WORDS =
   /\b(usd|eur|inr|gbp|jpy|cad|aud|chf|cny|dollars?|euros?|rupees?|yen|btc|bitcoin|eth|ethereum)\b|[$€£₹¥]/i;
-/** Currency conversion is live data, unlike unit conversion. */
+/** Weather questions are answered by the get_weather tool. */
+const WEATHER_QUESTION = /\b(weather|umbrella)\b|\bwill it (rain|snow)\b|\bhow (hot|cold|warm) is it\b/i;
+/** Currency conversion is live data, unlike unit conversion (answered by the convert_currency tool). */
 const CURRENCY_CONVERSION =
   /\b(convert|exchange|rate|worth)\b.*(\b(usd|eur|inr|gbp|jpy|cad|aud|chf|cny|dollars?|euros?|rupees?|yen|btc|bitcoin|eth|ethereum)\b|[$€£₹¥])|\b(usd|eur|inr|gbp|jpy)\s+(to|in)\s+(usd|eur|inr|gbp|jpy)\b/i;
 
@@ -131,7 +134,8 @@ export function needsFreshData(message: string, hasAttachments: boolean, hasMemo
   if (isGreeting(m) || referencesAttachment(m)) return false;
   if (isMemoryRequest(m) || isSaveOrForget(m)) return false;
   if (TASK_RE.test(m)) return false;
-  if (CURRENCY_CONVERSION.test(m)) return true;
+  // Currency conversion and weather have dedicated tools (convert_currency, get_weather): don't force a web search.
+  if (CURRENCY_CONVERSION.test(m) || WEATHER_QUESTION.test(m)) return false;
   if (isCalculation(m) || isDateTimeQuestion(m) || DATE_ARITHMETIC.test(m)) return false;
   return FRESH_CUE.test(m) || FRESH_CUE_INTL.test(m);
 }
@@ -141,6 +145,10 @@ export function searchQueryFrom(message: string): string {
   const q = message.replace(/[?!.]{2,}/g, " ").replace(/[?!]+$/g, "").replace(/\s+/g, " ").trim();
   return q.split(" ").slice(0, 14).join(" ");
 }
+
+/** A question about the user themselves: answer from what they told us earlier, never from thin air. */
+const PERSONAL_QUESTION =
+  /\bmy\s+(favou?rite|fav|name|birthday|age|email|phone|address|job|city|hobb|colou?r|food|pet|wife|husband|friend|dog|cat)|\bwho am i\b|what(?:'s| is| are)\s+my\b|do you (?:know|remember)\s+(?:my|me|what i)/i;
 
 const RECALL_CUE =
   /\b(asked|told|said|discussed|shortlisted|earlier|previously|your answer|again)\b/i;
@@ -332,7 +340,16 @@ export async function runTurn(
     ids: recalledIds,
   });
 
-  const memoryXml = recall ? renderMemoryBlock(recall, tz, db) ?? undefined : undefined;
+  let memoryXml = recall ? renderMemoryBlock(recall, tz, db) ?? undefined : undefined;
+  if (!memoryXml && readPrefs(db).memoryRecall && PERSONAL_QUESTION.test(input.message)) {
+    // No date or "you said" cue, but this is about the user: look through what they told us in earlier chats.
+    try {
+      const found = runMemorySearch(new MemoryStore(db), { query: input.message, limit: 4 }, { excludeTurnId: turn.id, statementsOnly: true });
+      if (found.count > 0) memoryXml = found.xml;
+    } catch {
+      /* recall is best-effort */
+    }
+  }
 
   handlers.onMemory?.(memoryPayload(recall, tz));
   const status = recall ? memoryStatusText(recall, tz) : undefined;

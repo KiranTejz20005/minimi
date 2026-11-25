@@ -35,7 +35,7 @@ const DESCRIPTION = [
   '- date: "2026-11-24 + 90 days", "today + 2 weeks", "days until 2026-12-25", "days between 2026-01-01 and 2026-03-05", "day of week 2026-12-25", "9am IST in America/New_York", "14:30 PST to Asia/Tokyo". "today"/"now" come from the app clock in `timezone` (default UTC).',
   "",
   "Time zones: prefer IANA names (America/New_York, Asia/Kolkata). Abbreviations UTC, GMT, PST, PDT, EST, EDT, CET, CEST, JST are fixed offsets. IST is read as India Standard Time (UTC+05:30). CST and BST are ambiguous and rejected.",
-  "Currency conversion is NOT supported (exchange rates change): use web_search for rates, then calculate the amounts with this tool.",
+  "Currency conversion is NOT supported (exchange rates change): use convert_currency for rates.",
   "`mode` is optional; it is auto-detected from the expression. Set it only to force one interpretation.",
 ].join("\n");
 

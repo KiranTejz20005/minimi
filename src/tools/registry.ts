@@ -7,6 +7,8 @@ import { webSearchTool } from "./web-search.js";
 import { calculateTool } from "./calculate.js";
 import { readAttachmentTool } from "./read-attachment.js";
 import { saveMemoryTool } from "./save-memory.js";
+import { weatherTool } from "./weather.js";
+import { currencyTool } from "./currency.js";
 import {
   ToolInputError,
   type ToolContext,
@@ -31,6 +33,8 @@ const BUILTIN_TOOLS: ToolDefinition[] = [
   calculateTool,
   readAttachmentTool,
   saveMemoryTool,
+  weatherTool,
+  currencyTool,
 ];
 
 const tools = new Map<string, ToolDefinition>();

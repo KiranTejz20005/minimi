@@ -179,10 +179,24 @@ function readAction(row: AttachmentRow, input: Input): ToolResult {
     const off = Math.min(input.offset ?? 0, full.length);
     const slice = full.slice(off, off + MAX_READ_CHARS);
     const more = off + slice.length < full.length;
-    const next = more ? `read page=${page} offset=${off + slice.length}` : page < doc.pages.length ? `read page=${page + 1}` : undefined;
+    // One call should cover as much of the document as fits: short pages are followed by the next whole pages
+    // (a model that has to read a PDF page by page burns its step budget before it can answer).
+    const parts = [wrap(row, { page }, slice || "(this page has no extractable text)")];
+    let used = slice.length;
+    let last = page;
+    if (!more && off === 0) {
+      for (let p = page + 1; p <= doc.pages.length; p++) {
+        const t = doc.pages[p - 1] || "";
+        if (used + t.length > MAX_READ_CHARS) break;
+        parts.push(wrap(row, { page: p }, t || "(this page has no extractable text)"));
+        used += t.length;
+        last = p;
+      }
+    }
+    const next = more ? `read page=${page} offset=${off + slice.length}` : last < doc.pages.length ? `read page=${last + 1}` : undefined;
     return {
-      content: `${wrap(row, { page }, slice || "(this page has no extractable text)")}\n${info({ page, of: total, next: next ?? "end of document", note: more ? `page ${page} continues` : undefined })}`,
-      label: `page ${page}`,
+      content: `${parts.join("\n")}\n${info({ page: last, of: total, next: next ?? "end of document", note: more ? `page ${page} continues` : last > page ? `pages ${page}-${last} shown` : undefined })}`,
+      label: last > page ? `pages ${page}-${last}` : `page ${page}`,
     };
   }
   if (doc.type === "table") {

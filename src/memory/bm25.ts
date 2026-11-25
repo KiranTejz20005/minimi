@@ -1,15 +1,23 @@
 const STOP = new Set(
-  "a an the and or but in on at to for of is are was were be been with from as by it this that what when where who how".split(
+  "a an the and or but in on at to for of is are was were be been with from as by it this that what when where who how my me your you do did does know remember".split(
     " ",
   ),
 );
+
+/** Spelling/plural folding so "favourite colours" matches "favorite color". */
+function normalizeToken(t: string): string {
+  let w = t.replace("favourite", "favorite").replace("colour", "color");
+  if (w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) w = w.slice(0, -1);
+  return w;
+}
 
 export function tokenize(text: string): string[] {
   return text
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
-    .filter((t) => t.length > 1 && !STOP.has(t));
+    .filter((t) => t.length > 1 && !STOP.has(t))
+    .map(normalizeToken);
 }
 
 export function bm25Score(
