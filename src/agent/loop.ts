@@ -11,6 +11,7 @@ import {
   AGENT_TOOLS,
   executeToolCall,
   getTool,
+  listTools,
   isTransientError,
   labelForCall,
   stableStringify,
@@ -18,6 +19,7 @@ import {
   type ToolContext,
   type ToolExecResult,
 } from "../tools/registry.js";
+import { looksLikeToolMarkup, parseTextToolCalls, stripToolMarkup } from "./text-tool-calls.js";
 import { PermissionGate, type ApprovalAction, type ApprovalMode } from "./permissions.js";
 
 export interface LoopCallbacks {
@@ -156,17 +158,58 @@ async function consumeStream(
   hold = false,
   /** Set once any token reached the client, so a failed step is not retried (it would duplicate text). */
   progress: { emitted: boolean } = { emitted: false },
-): Promise<{ content: AssistantBlock; text: string }> {
+): Promise<{ content: AssistantBlock; text: string; emitted: boolean }> {
   let buffered = "";
   let thinking = "";
+  const toolNames = listTools().map((t) => t.name);
+  // Live streaming holds back anything from a "<" onward until we know it is not a tool call written as text.
+  let pending = "";
+  let markupSeen = false;
+  const emit = (t: string) => {
+    if (!t) return;
+    progress.emitted = true;
+    callbacks.onToken?.(t);
+  };
+  const feed = (delta: string) => {
+    pending += delta;
+    for (;;) {
+      if (markupSeen) {
+        pending = "";
+        return;
+      }
+      const lt = pending.indexOf("<");
+      if (lt < 0) {
+        emit(pending);
+        pending = "";
+        return;
+      }
+      if (lt > 0) {
+        emit(pending.slice(0, lt));
+        pending = pending.slice(lt);
+      }
+      const gt = pending.indexOf(">");
+      if (gt < 0) {
+        if (pending.length > 200) {
+          emit(pending); // a long "<" with no tag end is just text
+          pending = "";
+        }
+        return;
+      }
+      const tag = pending.slice(0, gt + 1);
+      if (looksLikeToolMarkup(tag, toolNames)) {
+        markupSeen = true;
+        pending = "";
+        return;
+      }
+      emit(tag);
+      pending = pending.slice(gt + 1);
+    }
+  };
 
   for await (const ev of stream) {
     if (ev.type === "text_delta") {
       buffered += ev.text;
-      if (emitAsAnswer) {
-        progress.emitted = true;
-        callbacks.onToken?.(ev.text);
-      }
+      if (emitAsAnswer) feed(ev.text);
     } else if (ev.type === "thinking_delta") {
       thinking += ev.text;
       const line = ev.text.trim();
@@ -179,11 +222,13 @@ async function consumeStream(
       if (toolCalls.length > 0) {
         const statusText = (combined + thinking).trim();
         if (statusText) callbacks.onStatus?.(statusText);
-      } else if (!emitAsAnswer && buffered && !hold) {
-        for (const ch of buffered) callbacks.onToken?.(ch);
+      } else if (emitAsAnswer) {
+        if (!markupSeen) emit(pending); // flush a held "<..." tail that turned out to be plain text
+      } else if (buffered && !hold && !looksLikeToolMarkup(buffered, toolNames)) {
+        for (const ch of buffered) emit(ch);
       }
 
-      return { content: ev.content, text: combined };
+      return { content: ev.content, text: combined, emitted: progress.emitted };
     }
   }
 
@@ -321,7 +366,7 @@ export async function runAgentLoop(opts: {
       signal,
     };
 
-    let { content, text } = await streamStep(req, withholdTools || step > 1, mustSearch);
+    let { content, text, emitted: emittedLive } = await streamStep(req, withholdTools || step > 1, mustSearch);
     throwIfAborted();
     let calls = extractToolCalls(content);
     if (mustSearch && calls.length === 0) {
@@ -339,10 +384,29 @@ export async function runAgentLoop(opts: {
       text = "";
     }
 
+    if (!calls.length && !withholdTools && looksLikeToolMarkup(text, listTools().map((t) => t.name))) {
+      // The model wrote a tool call as text instead of calling the function: turn it back into a real call.
+      const leaked = parseTextToolCalls(text, listTools().map((t) => t.schema));
+      if (leaked.calls.length > 0) {
+        const uses = leaked.calls.slice(0, 4).map((c, i) => ({
+          type: "tool_use" as const,
+          id: "textcall_" + step + "_" + i + "_" + Date.now().toString(36),
+          name: c.name,
+          input: c.input as unknown,
+        }));
+        content = [...(leaked.rest ? [{ type: "text" as const, text: leaked.rest }] : []), ...uses];
+        calls = extractToolCalls(content);
+        text = leaked.rest;
+      }
+    }
+
     if (!calls.length || withholdTools) {
       // Final answer. (A model that calls tools anyway when none were offered is ignored: no tool_use is kept
       // in the history without its result.)
-      answer = text;
+      // Never show tool-call markup as an answer (a model that tries to call a tool when none can run).
+      const markupAnswer = looksLikeToolMarkup(text, listTools().map((t) => t.name));
+      answer = markupAnswer ? stripToolMarkup(text, listTools().map((t) => t.schema)) : text;
+      if (markupAnswer && !emittedLive && answer.trim()) callbacks.onToken?.(answer);
       if (calls.length === 0 && text.trim()) messages.push({ role: "assistant", content: content as never });
       break;
     }

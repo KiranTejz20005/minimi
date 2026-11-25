@@ -67,7 +67,11 @@ export type MemorySearchResult = {
   error?: string;
 };
 
-export function runMemorySearch(store: MemoryStore, raw: unknown): MemorySearchResult {
+export function runMemorySearch(
+  store: MemoryStore,
+  raw: unknown,
+  opts: { excludeTurnId?: string; statementsOnly?: boolean } = {},
+): MemorySearchResult {
   const t0 = getClock().now().getTime();
   const parsed = inputSchema.safeParse(raw);
   if (!parsed.success) {
@@ -96,6 +100,15 @@ export function runMemorySearch(store: MemoryStore, raw: unknown): MemorySearchR
     candidates = store.turnsInDateRange(date, date);
   } else {
     candidates = store.allTurnsForRanking().slice(0, 400);
+  }
+
+  if (opts.excludeTurnId) candidates = candidates.filter((t) => t.id !== opts.excludeTurnId);
+  if (opts.statementsOnly) {
+    // Facts the user told us ("my favorite color is blue"), not their questions or our earlier "no record" replies.
+    candidates = candidates.filter((t) => {
+      const q = t.user_question.trim();
+      return !q.endsWith("?") && !/^(what|who|when|where|why|how|do|does|did|can|could|is|are|tell|remind)\b/i.test(q);
+    });
   }
 
   const docs = candidates.map(
