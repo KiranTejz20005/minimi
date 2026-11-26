@@ -8,6 +8,7 @@ import {
   IconBell,
   IconChart,
   IconChat,
+  IconDiscover,
   IconChevronDown,
   IconChevronRight,
   IconFolder,
@@ -33,7 +34,7 @@ import {
 import { Avatar, ConfirmDialog, Menu, anchorFromEvent, anchorFromPoint, type MenuAnchor, type MenuItem } from "./ui";
 import { initials, useStored, type ThemePref } from "./util";
 
-export type View = "chat" | "runs" | "files" | "analytics" | "settings";
+export type View = "chat" | "runs" | "files" | "analytics" | "discover" | "settings";
 const REPO_URL = "https://github.com/KiranTejz20005/minimi";
 
 export interface SidebarProps {
@@ -347,6 +348,7 @@ export function Sidebar(p: SidebarProps) {
     { key: "runs", label: "Runs", icon: <IconRuns />, badge: p.pendingCount, active: p.view === "runs", run: () => p.onNav("runs") },
     { key: "files", label: "Folders", icon: <IconFolder />, active: p.view === "files", run: () => p.onNav("files") },
     { key: "analytics", label: "Analytics", icon: <IconChart />, active: p.view === "analytics", run: () => p.onNav("analytics") },
+    { key: "discover", label: "Discover", icon: <IconDiscover />, active: p.view === "discover", run: () => p.onNav("discover") },
     { key: "int", label: "Integrations", icon: <IconPlug />, run: p.onOpenIntegrations },
   ];
 

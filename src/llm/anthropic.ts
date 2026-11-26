@@ -13,6 +13,7 @@ import type {
   LLMJsonRequest,
   LLMStreamRequest,
   NormalizedToolCall,
+  TokenUsage,
 } from "./types.js";
 
 type PartialTool = { id: string; name: string; json: string };
@@ -30,6 +31,18 @@ function extractToolCalls(content: AssistantBlock): NormalizedToolCall[] {
 
 export { extractToolCalls };
 
+/** Message usage -> TokenUsage. Input counts cached prompt tokens too (read + written), like OpenAI's prompt_tokens. */
+function usageOf(u: unknown): TokenUsage | undefined {
+  if (!u || typeof u !== "object") return undefined;
+  const r = u as Record<string, unknown>;
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  if (typeof r.input_tokens !== "number" && typeof r.output_tokens !== "number") return undefined;
+  return {
+    inputTokens: n(r.input_tokens) + n(r.cache_read_input_tokens) + n(r.cache_creation_input_tokens),
+    outputTokens: n(r.output_tokens),
+  };
+}
+
 export function createAnthropicLlm(apiKey?: string): LLM {
   const cfg = getConfig();
   const key = apiKey ?? cfg.ANTHROPIC_API_KEY;
@@ -43,7 +56,7 @@ export function createAnthropicLlm(apiKey?: string): LLM {
       const stream = client.messages.stream(
         {
           model: req.model,
-          max_tokens: req.maxTokens ?? 8_192,
+          max_tokens: req.maxTokens ?? Math.max(8_192, cfg.MAX_OUTPUT_TOKENS),
           system: req.system,
           messages: req.messages as MessageParam[],
           tools: req.tools,
@@ -93,11 +106,13 @@ export function createAnthropicLlm(apiKey?: string): LLM {
 
       const final = await stream.finalMessage();
       const content = final.content as unknown as AssistantBlock;
+      const usage = usageOf(final.usage);
 
       yield {
         type: "done",
         stopReason: final.stop_reason,
         content,
+        ...(usage ? { usage } : {}),
       };
     },
 

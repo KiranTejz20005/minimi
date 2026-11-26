@@ -288,3 +288,16 @@ UI derive everything else from it, so adding a tool is: write the definition, ad
 
 Approval modes (composer): `request` asks before network actions, `auto` asks only for risky actions (memory writes,
 private-looking URLs), `full` never asks.
+
+## Discover tab
+
+**Discover** (sidebar) shows the latest news across seven domains (AI, Startups, Technology, Business, Science, Health, World) and a feed of startups that recently raised funding, with details and an on-demand AI briefing for each. Everything is collected from public RSS/Atom feeds listed in `src/discover/feeds.ts` (BBC, Guardian, TechCrunch, Ars Technica, The Verge, MIT Technology Review, Crunchbase News, EU-Startups, Tech.eu, Inc42, Entrackr, YourStory and others), fetched through the SSRF-safe fetcher, stored in SQLite and refreshed in the background.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DISCOVER_ENABLED` | `1` | `0` turns the background refresh off (stored items are still served) |
+| `DISCOVER_REFRESH_MIN` | `30` | Minutes between automatic refreshes (5 to 1440) |
+| `DISCOVER_LLM_REFINE` | `1` | Let the fast model clean up extracted funding rows (only used when an LLM key exists) |
+| `MAX_OUTPUT_TOKENS` | `4096` | Max tokens the model may write per step; a cut-off answer is continued once |
+
+API: `GET /api/discover/news`, `GET /api/discover/startups`, `GET /api/discover/status`, `POST /api/discover/refresh`, `POST /api/discover/startups/:id/context`. The chat agent can also read the same data with the `get_latest_news` tool. Funding details are extracted from headlines by rules, so amounts and investors can be incomplete; the briefing says what the article does not state.

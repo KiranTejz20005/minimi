@@ -5,6 +5,7 @@ import type {
   LLMEvent,
   LLMJsonRequest,
   LLMStreamRequest,
+  TokenUsage,
 } from "./types.js";
 
 /**
@@ -83,15 +84,42 @@ export function createOpenAILlm(apiKey?: string): LLM {
   const key = apiKey ?? cfg.NVIDIA_API_KEY;
   if (!key) throw new Error("NVIDIA_API_KEY not set");
   const url = `${cfg.LLM_BASE_URL.replace(/\/$/, "")}/chat/completions`;
+  /** Set once the provider rejected `stream_options`: later calls on this client do not send it. */
+  let usageUnsupported = false;
+
+  /** POST with up to 3 tries on network errors / 429 / 5xx. Returns the last response (ok or not). */
+  const post = async (body: Record<string, unknown>, signal?: AbortSignal): Promise<Response | undefined> => {
+    let res: Response | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: headers(key),
+          body: JSON.stringify(body),
+          signal,
+        });
+      } catch (e) {
+        if (signal?.aborted || attempt === 2) throw e;
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        continue;
+      }
+      const transient = res.status === 429 || res.status >= 500;
+      if (!transient || attempt === 2) break;
+      await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+    }
+    return res;
+  };
 
   return {
     async *stream(req: LLMStreamRequest): AsyncIterable<LLMEvent> {
       const body: Record<string, unknown> = {
         model: req.model,
-        max_tokens: req.maxTokens ?? 1500,
+        max_tokens: req.maxTokens ?? cfg.MAX_OUTPUT_TOKENS,
         stream: true,
         messages: toOpenAIMessages(req.system, req.messages as unknown[]),
       };
+      // Ask for token usage in the final chunk; providers that reject the parameter get one retry without it.
+      if (!usageUnsupported) body.stream_options = { include_usage: true };
       if (req.tools?.length) {
         body.tools = req.tools.map((t) => ({
           type: "function",
@@ -109,23 +137,15 @@ export function createOpenAILlm(apiKey?: string): LLM {
               : "auto";
       }
 
-      let res: Response | undefined;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          res = await fetch(url, {
-            method: "POST",
-            headers: headers(key),
-            body: JSON.stringify(body),
-            signal: req.signal,
-          });
-        } catch (e) {
-          if (req.signal?.aborted || attempt === 2) throw e;
-          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
-          continue;
+      let res = await post(body, req.signal);
+      if (res?.status === 400 && "stream_options" in body) {
+        const detail = await res.text();
+        if (!/stream_options|include_usage/i.test(detail)) {
+          throw new Error(`LLM request failed (400): ${detail.slice(0, 300)}`);
         }
-        const transient = res.status === 429 || res.status >= 500;
-        if (!transient || attempt === 2) break;
-        await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+        usageUnsupported = true;
+        delete body.stream_options;
+        res = await post(body, req.signal);
       }
       if (!res || !res.ok || !res.body) {
         throw new Error(`LLM request failed (${res?.status ?? "no response"}): ${res ? (await res.text()).slice(0, 300) : ""}`);
@@ -133,6 +153,7 @@ export function createOpenAILlm(apiKey?: string): LLM {
 
       let text = "";
       let finish: string | null = null;
+      let usage: TokenUsage | undefined;
       const tools = new Map<number, { id: string; name: string; args: string }>();
 
       const decoder = new TextDecoder();
@@ -154,6 +175,12 @@ export function createOpenAILlm(apiKey?: string): LLM {
             json = JSON.parse(data);
           } catch {
             continue;
+          }
+          // With include_usage the totals arrive in a last chunk with no choices (other chunks carry usage: null).
+          if (json.usage && typeof json.usage === "object") {
+            const inT = Number(json.usage.prompt_tokens ?? json.usage.input_tokens);
+            const outT = Number(json.usage.completion_tokens ?? json.usage.output_tokens);
+            if (Number.isFinite(inT) && Number.isFinite(outT)) usage = { inputTokens: inT, outputTokens: outT };
           }
           const choice = json.choices?.[0];
           if (!choice) continue;
@@ -189,8 +216,10 @@ export function createOpenAILlm(apiKey?: string): LLM {
 
       yield {
         type: "done",
-        stopReason: tools.size > 0 ? "tool_use" : finish === "length" ? "max_tokens" : "end_turn",
+        // "length" wins over tool calls: a call cut off mid-arguments must not be executed (agent/loop.ts retries).
+        stopReason: finish === "length" ? "max_tokens" : tools.size > 0 ? "tool_use" : "end_turn",
         content,
+        ...(usage ? { usage } : {}),
       };
     },
 

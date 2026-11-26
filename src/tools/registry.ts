@@ -9,6 +9,7 @@ import { readAttachmentTool } from "./read-attachment.js";
 import { saveMemoryTool } from "./save-memory.js";
 import { weatherTool } from "./weather.js";
 import { currencyTool } from "./currency.js";
+import { latestNewsTool } from "./latest-news.js";
 import {
   ToolInputError,
   type ToolContext,
@@ -35,6 +36,7 @@ const BUILTIN_TOOLS: ToolDefinition[] = [
   saveMemoryTool,
   weatherTool,
   currencyTool,
+  latestNewsTool,
 ];
 
 const tools = new Map<string, ToolDefinition>();

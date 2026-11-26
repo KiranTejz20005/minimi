@@ -7,7 +7,11 @@ export type TraceStage =
   | "llm_step"
   | "search"
   | "citations"
-  | "digest";
+  | "digest"
+  /** One row per tool call: { id, name, tool, label, step, error?, duplicate?, declined? } (`tool` = name, read by the Runs view). */
+  | "tool"
+  /** A model step stopped at the output limit: { step, kind: "answer" | "tool_call", action, label }. */
+  | "truncation";
 
 export interface TraceWriter {
   start(): number;

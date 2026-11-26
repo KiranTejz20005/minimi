@@ -167,3 +167,54 @@ CREATE TABLE IF NOT EXISTS memory_events (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_memory_events_mem ON memory_events(memory_id);
+
+-- ── Discover tab: news + startup funding (additive; safe to re-run) ─────────
+CREATE TABLE IF NOT EXISTS news_items (
+  id           TEXT PRIMARY KEY,          -- hash of url
+  title        TEXT NOT NULL,
+  url          TEXT NOT NULL UNIQUE,
+  source       TEXT NOT NULL,
+  domain       TEXT NOT NULL,
+  summary      TEXT NOT NULL DEFAULT '',
+  image_url    TEXT,
+  published_at TEXT NOT NULL,             -- UTC ISO-8601
+  fetched_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_news_published ON news_items(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_news_domain ON news_items(domain, published_at DESC);
+
+CREATE TABLE IF NOT EXISTS startup_fundings (
+  id           TEXT PRIMARY KEY,          -- hash of normalized company + month (round is merged, not keyed)
+  company      TEXT NOT NULL,
+  amount_usd   REAL,
+  amount_text  TEXT,
+  currency     TEXT,
+  round        TEXT,
+  sector       TEXT NOT NULL DEFAULT 'other',
+  summary      TEXT NOT NULL DEFAULT '',
+  investors    TEXT NOT NULL DEFAULT '[]', -- JSON array
+  location     TEXT,
+  published_at TEXT NOT NULL,
+  source       TEXT NOT NULL,
+  url          TEXT NOT NULL,
+  fetched_at   TEXT NOT NULL,
+  context_json TEXT,
+  context_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_funding_published ON startup_fundings(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_funding_sector ON startup_fundings(sector, published_at DESC);
+
+CREATE TABLE IF NOT EXISTS discover_state (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS feed_status (
+  name  TEXT PRIMARY KEY,
+  kind  TEXT NOT NULL,
+  ok    INTEGER NOT NULL,
+  items INTEGER NOT NULL DEFAULT 0,
+  ms    INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  at    TEXT NOT NULL
+);

@@ -140,6 +140,99 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   return data as T;
 }
 
+/* ── Discover: news across domains + recently funded startups (/api/discover/*) ── */
+
+export type DiscoverFacet = { id: string; label: string; count: number };
+export type NewsItem = {
+  id: string;
+  title: string;
+  url: string;
+  source: string;
+  domain: string;
+  summary: string;
+  /** Not rendered: the CSP (img-src 'self' data:) blocks remote images, so the UI shows a source monogram instead. */
+  imageUrl: string | null;
+  publishedAt: string;
+  fetchedAt: string;
+};
+export type NewsPage = { items: NewsItem[]; total: number; updatedAt: string | null; domains: DiscoverFacet[] };
+export type StartupContext = {
+  whatTheyDo: string;
+  funding: string;
+  investors: string;
+  whyItMatters: string;
+  market: string;
+  caveats: string;
+  generatedAt: string;
+  model: string | null;
+};
+export type Startup = {
+  id: string;
+  company: string;
+  amountUsd: number | null;
+  amountText: string | null;
+  currency: string | null;
+  round: string | null;
+  sector: string;
+  summary: string;
+  investors: string[];
+  location: string | null;
+  publishedAt: string;
+  source: string;
+  url: string;
+  context: StartupContext | null;
+};
+export type StartupStats = { count: number; totalUsd: number | null; last7d: number };
+export type StartupsPage = { items: Startup[]; total: number; updatedAt: string | null; sectors: DiscoverFacet[]; stats: StartupStats };
+export type DiscoverSource = { name: string; kind: string; ok: boolean; items: number; ms: number; error?: string };
+export type DiscoverStatus = {
+  lastRefreshAt: string | null;
+  nextRefreshAt: string | null;
+  refreshing: boolean;
+  newsCount: number;
+  startupCount: number;
+  sources: DiscoverSource[];
+};
+export type DiscoverRefresh = { started: boolean; reason?: "already_running" | "too_soon" };
+export type NewsQuery = { domain?: string; q?: string; limit?: number; offset?: number };
+export type StartupsQuery = { sector?: string; q?: string; sort?: "recent" | "amount"; limit?: number; offset?: number };
+
+/** ApiError plus the server's Retry-After in seconds (set on 429), so the UI can say when to try again. */
+export class DiscoverError extends ApiError {
+  constructor(message: string, status: number, public retryAfterSec: number | null = null) {
+    super(message, status);
+  }
+}
+
+function discoverQs(params: Record<string, string | number | undefined>): string {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined) continue;
+    const s = String(v).trim();
+    if (s) sp.set(k, s);
+  }
+  const s = sp.toString();
+  return s ? `?${s}` : "";
+}
+
+/** Like req(), plus an AbortSignal (stale filter requests are cancelled) and Retry-After on errors. Status 0 = network failure. */
+async function discoverReq<T>(method: "GET" | "POST", url: string, signal?: AbortSignal): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(API_BASE + url, method === "POST" ? { method, signal, headers: { "Content-Type": "application/json" }, body: "{}" } : { method, signal });
+  } catch (e) {
+    if (signal?.aborted) throw e; // AbortError: callers ignore it
+    throw new DiscoverError(e instanceof Error ? e.message : "Network error", 0);
+  }
+  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) {
+    const ra = res.headers.get("Retry-After");
+    const sec = ra && /^\d+$/.test(ra.trim()) ? Number(ra.trim()) : ra ? Math.max(0, Math.ceil((Date.parse(ra) - Date.now()) / 1000)) : NaN;
+    throw new DiscoverError(data.error ?? res.statusText ?? "Request failed", res.status, Number.isFinite(sec) ? sec : null);
+  }
+  return data as T;
+}
+
 export const api = {
   health: () => req<{ ok: boolean; hasLlm: boolean; hasSearch: boolean; devRoutes: boolean; now: string }>("GET", "/health"),
 
@@ -195,6 +288,21 @@ export const api = {
   getClock: () => req<{ now: string }>("GET", "/api/dev/clock"),
   setClock: (iso: string) => req<{ now: string }>("POST", "/api/dev/clock", { iso }),
   resetClock: () => req<{ now: string }>("POST", "/api/dev/clock", { clear: true }),
+
+  /* Discover */
+  discoverNews: (q: NewsQuery, signal?: AbortSignal) =>
+    discoverReq<NewsPage>("GET", `/api/discover/news${discoverQs({ domain: q.domain, q: q.q, limit: q.limit, offset: q.offset })}`, signal),
+  discoverStartups: (q: StartupsQuery, signal?: AbortSignal) =>
+    discoverReq<StartupsPage>(
+      "GET",
+      `/api/discover/startups${discoverQs({ sector: q.sector, q: q.q, sort: q.sort, limit: q.limit, offset: q.offset })}`,
+      signal,
+    ),
+  discoverStatus: (signal?: AbortSignal) => discoverReq<DiscoverStatus>("GET", "/api/discover/status", signal),
+  discoverRefresh: () => discoverReq<DiscoverRefresh>("POST", "/api/discover/refresh"),
+  /** Slow (5–20 s): the server reads the article and asks the model. Cached results come back at once with cached: true. */
+  discoverContext: (id: string, signal?: AbortSignal) =>
+    discoverReq<{ context: StartupContext; cached: boolean }>("POST", `/api/discover/startups/${encodeURIComponent(id)}/context`, signal),
 };
 
 /* ── Streaming chat ──────────────────────────────────────────────────────── */

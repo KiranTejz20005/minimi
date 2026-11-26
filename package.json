@@ -16,6 +16,7 @@
     "seed:fixtures": "tsx scripts/seed.ts --fixtures",
     "eval": "tsx scripts/eval.ts",
     "eval:latency": "tsx scripts/latency.ts",
+    "eval:live": "tsx scripts/eval-live.ts",
     "build:web": "tsx scripts/build-web.ts",
     "build:vercel": "tsx scripts/build-vercel.ts"
   },

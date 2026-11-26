@@ -40,7 +40,8 @@ import {
   stripInvalidCitations,
 } from "./citations.js";
 import type { SearchProvider } from "../search/types.js";
-import { runAgentLoop, type LoopCallbacks } from "./loop.js";
+import { runAgentLoop, type LoopCallbacks, type TruncationEvent } from "./loop.js";
+import type { TokenUsage } from "../llm/types.js";
 
 /**
  * Forced first-step web search: only for requests that are clearly about things that change (news, prices,
@@ -215,6 +216,20 @@ export interface RunTurnResult {
   firstStatusMs: number | null;
   firstTokenMs: number | null;
   totalMs: number;
+  /** Provider-reported token totals for the turn (all model calls); null when the provider reported none. */
+  usage: TokenUsage | null;
+}
+
+/** Readable line for a truncation trace row (the Runs view shows `label` under the humanised stage name). */
+function truncationLabel(t: TruncationEvent): string {
+  if (t.kind === "answer") {
+    return t.action === "continue"
+      ? `Answer reached the output limit at step ${t.step}; asked the model to continue`
+      : "Answer still cut off after one continuation; marked as cut off";
+  }
+  return t.action === "retry"
+    ? `A tool call was cut off at step ${t.step}; it was not run and the step was retried`
+    : "The tool call was cut off again; answered without it";
 }
 
 function memoryStatusText(recall: RecallResult, tz: string): string | undefined {
@@ -384,6 +399,7 @@ export async function runTurn(
   try {
     const tLoop0 = clock.now().getTime();
     let searchBatch = 0;
+    let truncations = 0;
     const metricHandlers: TurnEventHandlers = {
       ...handlers,
       onStatus: (text) => {
@@ -404,6 +420,25 @@ export async function runTurn(
           count: batch.queryCount,
           queries: batch.queries,
         });
+      },
+      onToolTrace: (t) => {
+        handlers.onToolTrace?.(t);
+        // `tool` duplicates `name`: the Runs view titles unknown stages from detail.tool and detail.label.
+        trace.record("tool", t.ms, {
+          id: t.id,
+          name: t.name,
+          tool: t.name,
+          label: t.label,
+          step: t.step,
+          ...(t.error ? { error: t.error } : {}),
+          ...(t.duplicate ? { duplicate: true } : {}),
+          ...(t.declined ? { declined: true } : {}),
+        });
+      },
+      onTruncation: (t) => {
+        handlers.onTruncation?.(t);
+        truncations += 1;
+        trace.record("truncation", 0, { ...t, label: truncationLabel(t) });
       },
     };
     // Pass db/store/approvalMode so loop can run memory_search/lookup_claims and gate permissions.
@@ -451,6 +486,10 @@ export async function runTurn(
       searches: loopResult.searches,
       toolCalls: loopResult.toolCalls.length,
       budget: loopResult.budget ?? null,
+      inputTokens: loopResult.usage?.inputTokens ?? null,
+      outputTokens: loopResult.usage?.outputTokens ?? null,
+      ...(loopResult.stepUsage.length ? { usage: loopResult.stepUsage } : {}),
+      ...(truncations ? { truncations } : {}),
     });
     try {
       saveToolResults(db, turn.id, loopResult.toolCalls);
@@ -529,6 +568,7 @@ export async function runTurn(
     firstStatusMs,
     firstTokenMs,
     totalMs: clock.now().getTime() - turnStart,
+    usage: loopResult.usage,
   };
 }
 

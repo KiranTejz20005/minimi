@@ -22,13 +22,19 @@ export type AssistantBlock =
       | { type: "tool_use"; id: string; name: string; input: unknown }
     >;
 
+/** Provider-reported token counts for one model call (input includes cached prompt tokens). */
+export type TokenUsage = { inputTokens: number; outputTokens: number };
+
 export type LLMEvent =
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; text: string }
   | {
       type: "done";
+      /** "max_tokens" = cut off at the output limit (the loop continues or retries; see agent/loop.ts). */
       stopReason: string | null;
       content: AssistantBlock;
+      /** Absent when the provider did not report usage. */
+      usage?: TokenUsage;
     };
 
 export interface LLMStreamRequest {

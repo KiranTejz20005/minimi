@@ -27,6 +27,8 @@ import {
 import { newId } from "./util/ids.js";
 import { parseApprovalMode } from "./agent/permissions.js";
 import { runTurn, importConversations, getDigestQueue } from "./agent/run-turn.js";
+import { registerDiscoverRoutes } from "./discover/routes.js";
+import { startDiscoverScheduler } from "./discover/scheduler.js";
 import { buildWeb } from "../scripts/build-web-lib.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -165,6 +167,7 @@ app.get("/health", (c) => {
 });
 
 registerRoutes(app, db, { digest });
+registerDiscoverRoutes(app, db);
 
 app.get("/api/trace/:turnId", (c) => {
   return c.json({ traces: getTracesForTurn(db, c.req.param("turnId")) });
@@ -396,6 +399,7 @@ app.get("/bundle.css", (c) => {
 app.get("/app/bundle.js", (c) => c.redirect("/bundle.js"));
 app.get("/app/bundle.css", (c) => c.redirect("/bundle.css"));
 
+const stopDiscover = startDiscoverScheduler(db); // news + startup-funding refresh in the background
 const server = serve({ fetch: app.fetch, port: cfg.PORT, hostname: cfg.HOST }, (info) => {
   console.log(`Minimi listening on http://${cfg.HOST === "0.0.0.0" ? "localhost" : cfg.HOST}:${info.port} (${cfg.isProduction ? "production" : "development"})`);
   if (!cfg.hasLlm) console.warn("[warn] No LLM key set (ANTHROPIC_API_KEY or NVIDIA_API_KEY): chat will return an error until one is added to .env");
@@ -417,6 +421,7 @@ function shutdown(signal: string) {
   });
   setTimeout(() => process.exit(1), 10_000).unref();
 }
+process.on("exit", () => stopDiscover());
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
