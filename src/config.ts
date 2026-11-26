@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const envSchema = z.object({
+export const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   NVIDIA_API_KEY: z.string().optional(),
   /** "0" disables the forced web search on time-sensitive questions (see agent/run-turn.ts). */
@@ -33,6 +33,11 @@ const envSchema = z.object({
   MAX_TOOL_CALLS_PER_TURN: z.coerce.number().int().min(1).default(24),
   /** Max tool calls running at the same time inside one step. */
   MAX_PARALLEL_TOOLS: z.coerce.number().int().min(1).default(6),
+  /**
+   * Output token cap per model call. The OpenAI-compatible provider uses it as max_tokens; Anthropic uses
+   * max(8192, this). A cut-off answer is continued once (agent/loop.ts).
+   */
+  MAX_OUTPUT_TOKENS: z.coerce.number().int().min(256).max(32_000).default(4096),
   /** Token budget (estimated, ~3.5 chars/token) for earlier chat messages sent to the model. */
   HISTORY_TOKEN_BUDGET: z.coerce.number().int().min(500).default(6000),
   MAX_SEARCHES_PER_STEP: z.coerce.number().default(12),

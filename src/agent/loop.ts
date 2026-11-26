@@ -4,7 +4,7 @@ import type { SearchProvider } from "../search/types.js";
 import { getConfig } from "../config.js";
 import { defaultMainModel, extractToolCalls } from "../llm/anthropic.js";
 import type { LLM } from "../llm/types.js";
-import type { AssistantBlock, LLMEvent, SystemBlock } from "../llm/types.js";
+import type { AssistantBlock, LLMEvent, SystemBlock, TokenUsage } from "../llm/types.js";
 import { MemoryStore } from "../memory/store.js";
 import { TurnCitationRegistry } from "../search/tool.js";
 import {
@@ -58,7 +58,30 @@ export interface LoopCallbacks {
     queries: { query: string; durationMs: number }[];
   }) => void;
   onToken?: (text: string) => void;
+  /** Once per finished tool call (run, duplicate or declined; budget-dropped calls never run), for per-tool traces. */
+  onToolTrace?: (payload: ToolTracePayload) => void;
+  /** A model step stopped at the output limit (stopReason "max_tokens") and the loop recovered or gave up. */
+  onTruncation?: (payload: TruncationEvent) => void;
 }
+
+export type ToolTracePayload = {
+  step: number;
+  id: string;
+  name: string;
+  label: string;
+  ms: number;
+  error?: string;
+  duplicate?: true;
+  declined?: true;
+};
+
+/**
+ * kind "answer": the answer was cut off -> "continue" (asked once for the rest) or "gave_up" (still cut off: a note was
+ * appended). kind "tool_call": a tool call was cut off mid-arguments -> "retry" (step asked again) or "gave_up" (dropped).
+ */
+export type TruncationEvent = { step: number; kind: "answer" | "tool_call"; action: "continue" | "retry" | "gave_up" };
+
+export type StepUsage = { step: number } & TokenUsage;
 
 /** A tool call the loop actually executed this turn (duplicates and budget-dropped calls are not listed). */
 export interface ExecutedToolCall {
@@ -80,6 +103,10 @@ export interface AgentLoopResult {
   toolCalls: ExecutedToolCall[];
   /** Which budget forced the final answer, if any. */
   budget?: "steps" | "tool_calls";
+  /** Provider-reported token totals for the turn; null when the provider reported none. */
+  usage: TokenUsage | null;
+  /** The same per step (continuations and retries count toward their step), in step order. */
+  stepUsage: StepUsage[];
 }
 
 export type LoopLimits = {
@@ -158,7 +185,7 @@ async function consumeStream(
   hold = false,
   /** Set once any token reached the client, so a failed step is not retried (it would duplicate text). */
   progress: { emitted: boolean } = { emitted: false },
-): Promise<{ content: AssistantBlock; text: string; emitted: boolean }> {
+): Promise<StepOutput> {
   let buffered = "";
   let thinking = "";
   const toolNames = listTools().map((t) => t.name);
@@ -228,11 +255,86 @@ async function consumeStream(
         for (const ch of buffered) emit(ch);
       }
 
-      return { content: ev.content, text: combined, emitted: progress.emitted };
+      return { content: ev.content, text: combined, emitted: progress.emitted, stopReason: ev.stopReason, usage: ev.usage };
     }
   }
 
   throw new Error("LLM stream ended without done event");
+}
+
+type StepOutput = {
+  content: AssistantBlock;
+  text: string;
+  emitted: boolean;
+  stopReason: string | null;
+  usage?: TokenUsage;
+};
+
+// ---- output-limit recovery --------------------------------------------------------------------------
+const CONTINUE_PROMPT = "Continue exactly where you stopped.";
+const CUT_OFF_NOTE = "(The answer was cut off at the length limit.)";
+const TOOL_CUT_NOTE =
+  "(Your previous reply was cut off at the length limit in the middle of a tool call, so nothing was run. Call the tool again with complete, shorter arguments and keep any text before it brief.)";
+const OVERLAP_MIN = 6;
+const OVERLAP_MAX = 200;
+
+/**
+ * Length of the longest start of `next` (OVERLAP_MIN..OVERLAP_MAX chars) that `prev` already ends with: text a
+ * continuation repeated from the cut-off tail. Shorter coincidences ("the") are not treated as repeats.
+ */
+export function overlapLength(prev: string, next: string): number {
+  for (let n = Math.min(OVERLAP_MAX, prev.length, next.length); n >= OVERLAP_MIN; n--) {
+    if (prev.endsWith(next.slice(0, n))) return n;
+  }
+  return 0;
+}
+
+/** Could more text turn `buf` into a longer repeat of `prev`'s tail? */
+function overlapStillPossible(prev: string, buf: string): boolean {
+  for (let n = Math.max(buf.length + 1, OVERLAP_MIN); n <= Math.min(OVERLAP_MAX, prev.length); n++) {
+    if (prev.slice(prev.length - n).startsWith(buf)) return true;
+  }
+  return false;
+}
+
+/**
+ * Streams a continuation of `prev` without repeating its tail: tokens are held only while they could still be a
+ * repeat (usually just the first one), then flow straight through. `text()` is exactly what was emitted.
+ */
+function overlapTrimmer(prev: string, emit: (t: string) => void) {
+  let buf = "";
+  let out = "";
+  let decided = false;
+  const send = (t: string) => {
+    if (!t) return;
+    out += t;
+    emit(t);
+  };
+  const decide = () => {
+    decided = true;
+    send(buf.slice(overlapLength(prev, buf)));
+    buf = "";
+  };
+  return {
+    feed(t: string) {
+      if (decided) return send(t);
+      buf += t;
+      if (buf.length >= OVERLAP_MAX || !overlapStillPossible(prev, buf)) decide();
+    },
+    flush() {
+      if (!decided) decide();
+    },
+    text: () => out,
+  };
+}
+
+/** A copy of `messages` with `note` appended to the last user message (after any tool_result blocks, keeping pairing). */
+function withNote(messages: MessageParam[], note: string): MessageParam[] {
+  const last = messages.at(-1);
+  if (!last || last.role !== "user") return [...messages, { role: "user", content: note }];
+  const content =
+    typeof last.content === "string" ? `${last.content}\n\n${note}` : [...last.content, { type: "text" as const, text: note }];
+  return [...messages.slice(0, -1), { ...last, content }];
 }
 
 function blockText(content: AssistantBlock): string {
@@ -327,12 +429,28 @@ export async function runAgentLoop(opts: {
     if (signal?.aborted) throw abortError();
   };
 
+  const model = opts.model ?? defaultMainModel();
+  const toolNames = () => listTools().map((t) => t.name);
+
+  // Provider-reported token usage, summed per step (a step's retry or continuation counts toward that step).
+  const usageByStep = new Map<number, TokenUsage>();
+  const addUsage = (step: number, u: TokenUsage | undefined) => {
+    if (!u) return;
+    const cur = usageByStep.get(step) ?? { inputTokens: 0, outputTokens: 0 };
+    usageByStep.set(step, { inputTokens: cur.inputTokens + u.inputTokens, outputTokens: cur.outputTokens + u.outputTokens });
+  };
+
   /** One model step. A transient failure is retried once, but only while nothing has reached the client. */
-  const streamStep = async (req: Parameters<LLM["stream"]>[0], emitAsAnswer: boolean, hold: boolean) => {
+  const streamStep = async (
+    req: Parameters<LLM["stream"]>[0],
+    emitAsAnswer: boolean,
+    hold: boolean,
+    cbs: LoopCallbacks = callbacks,
+  ): Promise<StepOutput> => {
     for (let attempt = 0; ; attempt++) {
       const progress = { emitted: false };
       try {
-        return await consumeStream(opts.llm.stream(req), callbacks, emitAsAnswer, hold, progress);
+        return await consumeStream(opts.llm.stream(req), cbs, emitAsAnswer, hold, progress);
       } catch (err) {
         throwIfAborted();
         if (attempt >= 1 || progress.emitted || classifyLlmError(err) !== "transient") throw err;
@@ -341,6 +459,42 @@ export async function runAgentLoop(opts: {
         throwIfAborted();
       }
     }
+  };
+
+  /**
+   * `partial` (already streamed) stopped at the output limit: ask once for the rest, without tools, and stream it onto
+   * the same answer. Still cut off (or the request fails): keep what we have and append a visible note.
+   */
+  const continueAnswer = async (partial: string, history: MessageParam[], step: number): Promise<string> => {
+    callbacks.onStatus?.("The answer reached the length limit - continuing it");
+    callbacks.onTruncation?.({ step, kind: "answer", action: "continue" });
+    const trimmer = overlapTrimmer(partial, (t) => callbacks.onToken?.(t));
+    let stillCut = true;
+    try {
+      const r = await streamStep(
+        {
+          system: opts.system,
+          messages: [...history, { role: "assistant", content: partial }, { role: "user", content: CONTINUE_PROMPT }],
+          model,
+          signal,
+        },
+        true,
+        false,
+        { ...callbacks, onToken: trimmer.feed },
+      );
+      addUsage(step, r.usage);
+      stillCut = r.stopReason === "max_tokens";
+    } catch {
+      throwIfAborted();
+    }
+    trimmer.flush();
+    throwIfAborted();
+    const full = partial + trimmer.text();
+    if (!stillCut) return full;
+    const note = `${full.trim() ? "\n\n" : ""}${CUT_OFF_NOTE}`;
+    callbacks.onToken?.(note);
+    callbacks.onTruncation?.({ step, kind: "answer", action: "gave_up" });
+    return full + note;
   };
 
   for (let step = 1; step <= maxSteps; step++) {
@@ -362,13 +516,42 @@ export async function runAgentLoop(opts: {
       tools: withholdTools ? undefined : opts.disableWebSearch ? AGENT_TOOLS.filter((t) => t.name !== "web_search") : AGENT_TOOLS,
       forceTool: mustSearch,
       forceToolName: mustSearch ? "web_search" : undefined,
-      model: opts.model ?? defaultMainModel(),
+      model,
       signal,
     };
 
-    let { content, text, emitted: emittedLive } = await streamStep(req, withholdTools || step > 1, mustSearch);
+    const emitLive = withholdTools || step > 1;
+    const first = await streamStep(req, emitLive, mustSearch);
     throwIfAborted();
+    addUsage(step, first.usage);
+    let { content, text, stopReason } = first;
+    let emittedLive = first.emitted;
     let calls = extractToolCalls(content);
+
+    // A tool call cut off mid-arguments (output limit) is never run: the step is asked once more, then the call is dropped.
+    const cutToolCall = () =>
+      stopReason === "max_tokens" && !withholdTools && (calls.length > 0 || looksLikeToolMarkup(text, toolNames()));
+    if (cutToolCall()) {
+      callbacks.onStatus?.("A tool call was cut off at the length limit - retrying the step");
+      callbacks.onTruncation?.({ step, kind: "tool_call", action: "retry" });
+      // The cut-off reply is not kept in the history (no tool_use without its result); the note goes to this retry only.
+      // Text that already streamed live is not streamed a second time.
+      const again = await streamStep({ ...req, messages: withNote(messages, TOOL_CUT_NOTE) }, emitLive && !emittedLive, mustSearch);
+      throwIfAborted();
+      addUsage(step, again.usage);
+      ({ content, text, stopReason } = again);
+      emittedLive ||= again.emitted;
+      calls = extractToolCalls(content);
+      if (cutToolCall()) {
+        callbacks.onStatus?.("The tool call was cut off again - answering without it");
+        callbacks.onTruncation?.({ step, kind: "tool_call", action: "gave_up" });
+        content = [];
+        calls = [];
+        text = "";
+        stopReason = null;
+      }
+    }
+
     if (mustSearch && calls.length === 0) {
       const query =
         typeof opts.forceSearch === "function" ? await opts.forceSearch() : opts.forceSearch!;
@@ -404,10 +587,14 @@ export async function runAgentLoop(opts: {
       // Final answer. (A model that calls tools anyway when none were offered is ignored: no tool_use is kept
       // in the history without its result.)
       // Never show tool-call markup as an answer (a model that tries to call a tool when none can run).
-      const markupAnswer = looksLikeToolMarkup(text, listTools().map((t) => t.name));
+      const markupAnswer = looksLikeToolMarkup(text, toolNames());
       answer = markupAnswer ? stripToolMarkup(text, listTools().map((t) => t.schema)) : text;
       if (markupAnswer && !emittedLive && answer.trim()) callbacks.onToken?.(answer);
-      if (calls.length === 0 && text.trim()) messages.push({ role: "assistant", content: content as never });
+      if (stopReason === "max_tokens" && !markupAnswer && answer.trim()) {
+        answer = await continueAnswer(answer, messages, step);
+      } else if (calls.length === 0 && text.trim()) {
+        messages.push({ role: "assistant", content: content as never });
+      }
       break;
     }
     messages.push({ role: "assistant", content: content as never });
@@ -501,12 +688,25 @@ export async function runAgentLoop(opts: {
       }
       results.set(c.id, res);
       emitDone(c, res);
+      traceCall(c, res);
       for (const d of dupsOf.get(c.id) ?? []) {
         const dres: ToolExecResult = { ...res, id: d.id, ms: 0, duplicate: true };
         results.set(d.id, dres);
         emitDone(d, dres);
+        traceCall(d, dres);
       }
     };
+    const traceCall = (c: Call, res: ToolExecResult) =>
+      callbacks.onToolTrace?.({
+        step,
+        id: c.id,
+        name: c.name,
+        label: res.label,
+        ms: res.ms,
+        ...(res.error ? { error: res.error } : {}),
+        ...(res.duplicate ? { duplicate: true as const } : {}),
+        ...(res.declined ? { declined: true as const } : {}),
+      });
 
     const batchT0 = Date.now();
     const writes = toRun.filter((c) => getTool(c.name)?.effect === "write");
@@ -543,29 +743,33 @@ export async function runAgentLoop(opts: {
   }
 
   if (!answer.trim() && !signal?.aborted) {
-    const retry = await consumeStream(
-      opts.llm.stream({
-        system: opts.system,
-        messages: [
-          ...messages,
-          {
-            role: "user",
-            content:
-              "Answer the user's question now in plain text, using any tool results above. Do not call tools.",
-          },
-        ],
-        model: opts.model ?? defaultMainModel(),
-        signal,
-      }),
-      callbacks,
-      true,
-    ).catch(() => ({ text: "" }));
-    answer = retry.text.trim()
-      ? retry.text
-      : "I couldn't generate an answer this time. Please try again or rephrase the question.";
-    if (!retry.text.trim()) callbacks.onToken?.(answer);
+    const history: MessageParam[] = [
+      ...messages,
+      {
+        role: "user",
+        content: "Answer the user's question now in plain text, using any tool results above. Do not call tools.",
+      },
+    ];
+    const retry = await consumeStream(opts.llm.stream({ system: opts.system, messages: history, model, signal }), callbacks, true).catch(
+      () => null,
+    );
+    addUsage(steps, retry?.usage);
+    const text = retry?.text ?? "";
+    if (text.trim() && retry?.stopReason === "max_tokens") {
+      answer = await continueAnswer(text, history, steps);
+    } else {
+      answer = text.trim() ? text : "I couldn't generate an answer this time. Please try again or rephrase the question.";
+      if (!text.trim()) callbacks.onToken?.(answer);
+    }
   }
 
   const searches = Object.entries(toolCtx.counts).reduce((n, [name, c]) => n + (isSearchTool(name) ? c : 0), 0);
-  return { answer, registry, steps, searches, toolCalls: executed, budget };
+  const stepUsage = [...usageByStep].sort(([a], [b]) => a - b).map(([step, u]) => ({ step, ...u }));
+  const usage = stepUsage.length
+    ? stepUsage.reduce((t, u) => ({ inputTokens: t.inputTokens + u.inputTokens, outputTokens: t.outputTokens + u.outputTokens }), {
+        inputTokens: 0,
+        outputTokens: 0,
+      })
+    : null;
+  return { answer, registry, steps, searches, toolCalls: executed, budget, usage, stepUsage };
 }
