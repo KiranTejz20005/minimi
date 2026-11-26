@@ -10,6 +10,7 @@ import { ToastProvider, useToast } from "./shell/toast";
 import { useWorkspace } from "./shell/data";
 import { useMediaQuery, useStored, useTheme } from "./shell/util";
 import { AnalyticsView } from "./views/AnalyticsView";
+import { DiscoverView } from "./views/DiscoverView";
 import { FilesView } from "./views/FilesView";
 import { RunsView } from "./views/RunsView";
 import { setNotifyPrefs } from "./shell/notify";
@@ -27,6 +28,7 @@ function parseSegments(segs: string[]): Route {
   if (v === "runs") return { view: "runs", id: rid };
   if (v === "files") return { view: "files" };
   if (v === "analytics") return { view: "analytics" };
+  if (v === "discover") return { view: "discover", id: rid }; // id = "news" | "startups"
   if (v === "settings") return { view: "settings", id: rid }; // id = section
   return { view: "chat", id: rid };
 }
@@ -260,6 +262,11 @@ function Shell() {
         {route.view === "analytics" && (
           <div className="pane">
             <AnalyticsView />
+          </div>
+        )}
+        {route.view === "discover" && (
+          <div className="pane">
+            <DiscoverView tab={route.id} onTab={(t) => go({ view: "discover", id: t }, true)} />
           </div>
         )}
         {route.view === "settings" && (

@@ -54,6 +54,8 @@ export function FolderIcon({ color = "blue", size = 16, className }: { color?: P
   );
 }
 export const IconChart = make("M4 20V10M10 20V4M16 20v-7M22 20H2");
+/** Compass: the Discover tab (news + funded startups). */
+export const IconDiscover = make("M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM15.5 8.5l-2 5-5 2 2-5Z");
 export const IconPlug = make("M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0ZM12 17v5");
 export const IconChevronDown = make("m6 9 6 6 6-6");
 export const IconChevronRight = make("m9 6 6 6-6 6");
