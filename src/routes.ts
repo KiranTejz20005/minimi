@@ -757,7 +757,7 @@ Answer: ${String(t.a).slice(0, 1200)}`,
     if (body.confirm !== "DELETE") return c.json({ error: "Confirmation missing." }, 400);
     db.exec("BEGIN");
     try {
-      for (const t of ["feedback", "traces", "claims", "sources", "message_versions", "attachments", "turns", "messages", "conversation_meta", "conversations", "search_cache", "saved_memories", "memory_events"]) {
+      for (const t of ["feedback", "traces", "claims", "sources", "message_versions", "attachments", "turns", "messages", "conversation_meta", "conversations", "search_cache", "saved_memories", "memory_events", "news_items", "startup_fundings", "feed_status", "discover_state"]) {
         db.exec(`DELETE FROM ${t}`);
       }
       db.exec("COMMIT");
